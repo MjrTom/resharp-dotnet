@@ -8,7 +8,7 @@ open Resharp.Runtime
 [<return: Struct>]
 let (|PredStar|_|) (resolve: RegexNodeId -> RegexNode<_>) (nodeId: RegexNodeId) =
     match resolve nodeId with
-    | Loop(node = body; low = 0; up = Int32.MaxValue) ->
+    | Loop(node = body; field2 = 0; up = Int32.MaxValue) ->
         match resolve body with
         | Singleton pred -> ValueSome(pred)
         | _ -> ValueNone
@@ -19,7 +19,7 @@ let (|PredStar|_|) (resolve: RegexNodeId -> RegexNode<_>) (nodeId: RegexNodeId) 
 [<return: Struct>]
 let (|PredLoop|_|) (resolve: RegexNodeId -> RegexNode<_>) (nodeId: RegexNodeId) =
     match resolve nodeId with
-    | Loop(node = body; low = low; up = up) ->
+    | Loop(node = body; field2 = low; up = up) ->
         match resolve body with
         | Singleton pred -> ValueSome(pred, low, up)
         | _ -> ValueNone
@@ -28,13 +28,13 @@ let (|PredLoop|_|) (resolve: RegexNodeId -> RegexNode<_>) (nodeId: RegexNodeId) 
 [<return: Struct>]
 let (|PredStarHead|_|) (resolve: RegexNodeId -> RegexNode<_>) (nodeId: RegexNodeId) =
     match resolve nodeId with
-    | Loop(node = body; low = 0; up = Int32.MaxValue) ->
+    | Loop(node = body; field2 = 0; up = Int32.MaxValue) ->
         match resolve body with
         | Singleton pred -> ValueSome(pred)
         | _ -> ValueNone
-    | Concat(head = head) ->
+    | Concat(node = head) ->
         match resolve head with
-        | Loop(node = body; low = 0; up = Int32.MaxValue) ->
+        | Loop(node = body; field2 = 0; up = Int32.MaxValue) ->
             match resolve body with
             | Singleton pred -> ValueSome(pred)
             | _ -> ValueNone
@@ -44,10 +44,10 @@ let (|PredStarHead|_|) (resolve: RegexNodeId -> RegexNode<_>) (nodeId: RegexNode
 [<return: Struct>]
 let (|LookbackPrefix|_|) (resolve: RegexNodeId -> RegexNode<_>) (nodeId: RegexNodeId) =
     match resolve nodeId with
-    | LookAround(lookBack = true) -> ValueSome(nodeId)
-    | Concat(head = head) ->
+    | LookBehind _ -> ValueSome(nodeId)
+    | Concat(node = head) ->
         match resolve head with
-        | LookAround(lookBack = true) -> ValueSome(nodeId)
+        | LookBehind _ -> ValueSome(nodeId)
         | _ -> ValueNone
     | _ -> ValueNone
 
@@ -72,7 +72,7 @@ let (|HasSuffixLookahead|_|) (getFlags: RegexNodeId -> NodeFlags) (nodeId: Regex
 let (|ConcatSuffix|) (resolve: RegexNodeId -> RegexNode<_>) (nodeId: RegexNodeId) =
     let rec loop id =
         match resolve id with
-        | Concat(head = _; tail = tail) -> loop tail
+        | Concat(node = _; field2 = tail) -> loop tail
         | _ -> id
     loop nodeId
 
@@ -82,7 +82,7 @@ let inline (|SplitTail|) (resolve: RegexNodeId -> RegexNode<_>) (nodeId: RegexNo
 
     let rec loop id =
         match resolve id with
-        | Concat(head = h; tail = tail) ->
+        | Concat(node = h; field2 = tail) ->
             tmp.Add(h)
             loop tail
         | _ -> tmp, id
@@ -94,14 +94,14 @@ let inline (|SplitTail|) (resolve: RegexNodeId -> RegexNode<_>) (nodeId: RegexNo
 let (|StartsWithTrueStar|_|) (resolve: RegexNodeId -> RegexNode<_>) (solver: ISolver<_>) (nodeId: RegexNodeId) =
     let rec loop id =
         match resolve id with
-        | Concat(head = head) ->
+        | Concat(node = head) ->
             match resolve head with
-            | Loop(node = body; low = 0; up = Int32.MaxValue) ->
+            | Loop(node = body; field2 = 0; up = Int32.MaxValue) ->
                 match resolve body with
                 | Singleton pred when solver.IsFull(pred) -> ValueSome()
                 | _ -> ValueNone
             | _ -> ValueNone
-        | Loop(node = body; low = 0; up = Int32.MaxValue) ->
+        | Loop(node = body; field2 = 0; up = Int32.MaxValue) ->
             match resolve body with
             | Singleton pred when solver.IsFull(pred) -> ValueSome()
             | _ -> ValueNone
@@ -113,14 +113,14 @@ let (|StartsWithTrueStar|_|) (resolve: RegexNodeId -> RegexNode<_>) (solver: ISo
 let (|EndsWithTrueStar|_|) (resolve: RegexNodeId -> RegexNode<_>) (solver: ISolver<_>) (nodeId: RegexNodeId) =
     let rec loop id =
         match resolve id with
-        | Concat(head = _; tail = tail) ->
+        | Concat(node = _; field2 = tail) ->
             match resolve tail with
-            | Loop(node = body; low = 0; up = Int32.MaxValue) ->
+            | Loop(node = body; field2 = 0; up = Int32.MaxValue) ->
                 match resolve body with
                 | Singleton pred when solver.IsFull(pred) -> ValueSome()
                 | _ -> ValueNone
             | _ -> loop tail
-        | Loop(node = body; low = 0; up = Int32.MaxValue) ->
+        | Loop(node = body; field2 = 0; up = Int32.MaxValue) ->
             match resolve body with
             | Singleton pred when solver.IsFull(pred) -> ValueSome()
             | _ -> ValueNone

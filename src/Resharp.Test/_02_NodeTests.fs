@@ -1,4 +1,4 @@
-module internal  Resharp.Test._02_NodeTests
+module Resharp.Test._02_NodeTests
 
 open System.Reflection
 open Resharp
@@ -9,9 +9,11 @@ open Common
 open Resharp.Patterns
 open Resharp.Runtime
 
-type Flag = NodeFlags
-
 #if DEBUG
+
+[<Fact>]
+let ``node size`` () = 
+    Assert.Equal(40, sizeof<RegexNode<uint64>>)
 
 module internal Helpers =
     let charSetSolver = CharSetSolver()
@@ -21,23 +23,13 @@ module internal Helpers =
     let bddBuilder2 =
         RegexBuilder(converter, charSetSolver, charSetSolver, Resharp.ResharpOptions())
 
-
-
-let printNode (reg: RegexMatcher<_>, node: RegexNodeId) =
-    try
-        let matcher = reg
-        matcher.PrettyPrintNode node
-    with e ->
-        failwith "failed to print node"
-
-
 let assertSolverContains12 pattern =
     let pat = pattern
     let reg = Regex(pat)
     let b = reg.TSetMatcher.Cache.Builder
 
     match b.Node(reg.TSetMatcher.RawPattern) with
-    | Concat(head = h; tail = t) ->
+    | Concat(node = h; field2 = t) ->
         match b.Node(h), b.Node(t) with
         | Singleton head, Singleton tail ->
             assertTrue (Solver.containsSet reg.TSetMatcher.Cache.Solver head tail)
@@ -50,7 +42,7 @@ let assertNotSolverContains12 pattern =
     let b = reg.TSetMatcher.Cache.Builder
 
     match b.Node(reg.TSetMatcher.RawPattern) with
-    | Concat(head = h; tail = t) ->
+    | Concat(node = h; field2 = t) ->
         match b.Node(h), b.Node(t) with
         | Singleton head, Singleton tail ->
             assertFalse (Solver.containsSet reg.TSetMatcher.Cache.Solver head tail)
@@ -65,7 +57,6 @@ let ``_ solver 1`` () = assertSolverContains12 "[a-z]a"
 
 [<Fact>]
 let ``_ solver 2`` () = assertNotSolverContains12 "a[a-z]"
-
 
 
 
@@ -145,46 +136,46 @@ let ``conversion conc `` () = assertConverted "Twain" [ "Twain" ]
 let ``flags 01`` () =
     let matcher = Regex(@"^\d$").TSetMatcher
     let f = matcher.Cache.Builder.Info(matcher.ReverseTrueStarredPattern).NodeFlags
-    assertFlag f Flag.DependsOnAnchorFlag
+    assertFlag f NodeFlags.DependsOnAnchorFlag
 
 [<Fact>]
 let ``flags 02`` () =
     let matcher = Regex("""(?<=\W)\w+nn(?=\W)""").TSetMatcher
     let f = matcher.Cache.Builder.Info(matcher.ReverseTrueStarredPattern).NodeFlags
-    assertNotFlag f Flag.DependsOnAnchorFlag
+    assertNotFlag f NodeFlags.DependsOnAnchorFlag
 
 
 [<Fact>]
 let ``flags 03`` () =
     let matcher = Regex("""(?<=.?)""").TSetMatcher
     let f = matcher.Cache.Builder.Info(matcher.ReverseTrueStarredPattern).NodeFlags
-    assertFlag f Flag.CanBeNullableFlag
-    assertFlag f Flag.IsAlwaysNullableFlag
+    assertFlag f NodeFlags.CanBeNullableFlag
+    assertFlag f NodeFlags.IsAlwaysNullableFlag
 
 [<Fact>]
 let ``flags 07`` () =
     let matcher = Regex(@"a(?=b)").TSetMatcher
     let f = matcher.Cache.Builder.Info(matcher.RawPattern).NodeFlags
-    assertFlag f Flag.HasSuffixLookaheadFlag
+    assertFlag f NodeFlags.HasSuffixLookaheadFlag
 
 [<Fact>]
 let ``flags 08`` () =
     let matcher = Regex(@"(a|b)(?=b)").TSetMatcher
     let f = matcher.Cache.Builder.Info(matcher.RawPattern).NodeFlags
-    assertFlag f Flag.HasSuffixLookaheadFlag
+    assertFlag f NodeFlags.HasSuffixLookaheadFlag
 
 [<Fact>]
 let ``flags 09`` () =
     let matcher = Regex(@"(?<=b)(a|b)").TSetMatcher
     let f = matcher.Cache.Builder.Info(matcher.RawPattern).NodeFlags
-    assertFlag f Flag.HasPrefixLookbehindFlag
+    assertFlag f NodeFlags.HasPrefixLookbehindFlag
 
 
 [<Fact>]
 let ``flags 10`` () =
     let matcher = Regex(""".*$""").TSetMatcher
     let f = matcher.Cache.Builder.Info(matcher.RawPattern).NodeFlags
-    assertFlag f Flag.HasSuffixLookaheadFlag
+    assertFlag f NodeFlags.HasSuffixLookaheadFlag
 
 
 [<Fact>]

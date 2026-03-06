@@ -28,13 +28,16 @@ let rec transform
     | Loop (xs, lower, upper) ->
         let xs' = transformInner xs
         builder.mkLoop(xs',lower,upper)
-    | LookAround (body, back, rel, pendingNullable) ->
-        if nodeId = oldBuilder.anchors._nonWordLeft.Value then
-            builder.anchors._nonWordLeft.Value
-        elif nodeId = oldBuilder.anchors._nonWordRight.Value then
+    | LookAhead (body, rel, pendingNullable) ->
+        if nodeId = oldBuilder.anchors._nonWordRight.Value then
             builder.anchors._nonWordRight.Value
         else
-            builder.mkLookaround(transformInner body,back,rel,pendingNullable)
+            builder.mkLookaround(transformInner body,false,rel,pendingNullable)
+    | LookBehind (body, rel, pendingNullable) ->
+        if nodeId = oldBuilder.anchors._nonWordLeft.Value then
+            builder.anchors._nonWordLeft.Value
+        else
+            builder.mkLookaround(transformInner body,true,rel,pendingNullable)
     | Concat(head,tail) ->
         let head' = transformInner head
         let tail' = transformInner tail
@@ -69,8 +72,10 @@ let rec transformBack
     | Loop (xs, lower, upper) ->
         let xs' = transformInner xs
         builder.mkLoop(xs',lower,upper)
-    | LookAround (body, back, rel, pendingNullable) ->
-        builder.mkLookaround(transformInner body,back,rel,pendingNullable)
+    | LookAhead (body, rel, pendingNullable) ->
+        builder.mkLookaround(transformInner body,false,rel,pendingNullable)
+    | LookBehind (body, rel, pendingNullable) ->
+        builder.mkLookaround(transformInner body,true,rel,pendingNullable)
     | Concat(head,tail) ->
         let head' = transformInner head
         let tail' = transformInner tail
@@ -85,7 +90,8 @@ let collectSets (builder: RegexBuilder<'tset>) (nodeId: RegexNodeId) =
         | Singleton pred -> hs.Add pred |> ignore
         | And (nodes=xs)
         | Or (nodes=xs) -> xs |> iter collect
-        | LookAround (node=node)
+        | LookAhead (node=node)
+        | LookBehind (node=node)
         | Not (node=node)
         | Loop (node=node) -> collect node
         | Concat(head,tail) ->

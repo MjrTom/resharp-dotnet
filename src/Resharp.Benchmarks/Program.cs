@@ -10,11 +10,8 @@ if (args is ["--generate"])
 
 if (args is ["--profile", var profileName])
 {
-    var bench = new RedditBench();
-    var method = typeof(RedditBench).GetMethod(profileName)
-        ?? throw new Exception($"no method '{profileName}' on RedditBench");
-    for (int i = 0; i < 10; i++) method.Invoke(bench, null);
-    for (int i = 0; i < 5000; i++) method.Invoke(bench, null);
+    // profiling a one-off benchmark for flamegraphs
+    // ..
     return;
 }
 

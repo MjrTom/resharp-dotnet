@@ -30,7 +30,7 @@ module RegexNode =
         | Not(xs) ->
             let xs' = rev builder xs
             builder.mkNot xs'
-        | LookAround(node = node'; lookBack = false) ->
+        | LookAhead(node = node') ->
             match builder.Node(node') with
             | _ ->
                 let (SplitTail resolve (heads, tail)) = node'
@@ -42,9 +42,9 @@ module RegexNode =
                 | _ ->
                     let revBody = rev builder node'
                     builder.mkLookaround (revBody, true, 0, builder.emptyRefSet)
-        | LookAround(node = node'; lookBack = true) ->
+        | LookBehind(node = node') ->
             match builder.Node(node') with
-            | Concat(head = head; tail = tail) ->
+            | Concat(node = head; field2 = tail) ->
                 match head = RegexNodeId.TOP_STAR with
                 | true ->
                     let revBody = rev builder tail
@@ -88,10 +88,10 @@ module RegexNode =
             | Singleton _ -> false
             | Or(xs) -> xs |> exists (fun v -> isNullable (b, loc, v))
             | And(xs) -> xs |> forall (fun v -> isNullable (b, loc, v))
-            | Loop(node = r; low = low) -> low = 0 || (isNullable (b, loc, r))
+            | Loop(node = r; field2 = low) -> low = 0 || (isNullable (b, loc, r))
             | Not(inner) -> not (isNullable (b, loc, inner))
             | Concat(head, tail) -> isNullable (b, loc, head) && isNullable (b, loc, tail)
-            | LookAround(node = body) -> isNullable (b, loc, body)
+            | LookAhead(node = body) | LookBehind(node = body) -> isNullable (b, loc, body)
             | End -> loc = LocationKind.End
             | Begin -> loc = LocationKind.Begin
 
@@ -177,10 +177,9 @@ module RegexNode =
                     else
                         R'S
                 // Lookahead
-                | LookAround(
+                | LookAhead(
                     node = r
-                    lookBack = false
-                    relativeTo = rel
+                    field2 = rel
                     pendingNullables = pendingNulls) ->
                     let der_R = derivative (b, loc, loc_pred, r)
 
@@ -192,11 +191,11 @@ module RegexNode =
                         | true -> b.mkLookaround (der_R, false, rel + 1, b.zeroListRefSet)
                         | false ->
                             match b.Node(der_R) with
-                            | Concat(head = ch; tail = ct) ->
+                            | Concat(node = ch; field2 = ct) ->
                                 match ch = RegexNodeId.TOP_STAR with
                                 | true ->
                                     match b.Node(ct) with
-                                    | Concat(head = cth; tail = ctt) when
+                                    | Concat(node = cth; field2 = ctt) when
                                         (match b.Node(cth) with
                                          | Begin
                                          | End -> true
@@ -229,9 +228,9 @@ module RegexNode =
 
                     | _ -> b.mkLookaround (der_R, false, rel + 1, pendingNulls)
                 // Lookback
-                | LookAround(node = r; lookBack = true) ->
+                | LookBehind(node = r) ->
                     match b.Node(r) with
-                    | Concat(head = head; tail = tail) ->
+                    | Concat(node = head; field2 = tail) ->
 
                         b.mkLookaround (
                             derivative (

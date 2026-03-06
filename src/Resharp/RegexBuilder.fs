@@ -866,16 +866,16 @@ type internal RegexBuilder<'t
                 | _ when node1 = RegexNodeId.EPS -> this.mkLoop (node2, 0, 1)
                 | _ when node2 = RegexNodeId.EPS -> this.mkLoop (node1, 0, 1)
                 // a{0,5}|a{4,7} -> a{0,7}
-                | Loop(node = inner1; low = low1; up = up1),
-                  Loop(node = inner2; low = low2; up = up2) when inner1 = inner2 ->
+                | Loop(node = inner1; field2 =low1; up = up1),
+                  Loop(node = inner2; field2 =low2; up = up2) when inner1 = inner2 ->
                     this.mkLoop (inner1, min low1 low2, max up1 up2)
                 // (ab)|(ab){2} -> (ab){1,2}
-                | Loop(node = loopBody; low = low; up = up), _ when loopBody = node2 ->
+                | Loop(node = loopBody; field2 =low; up = up), _ when loopBody = node2 ->
                     match low, up with
                     | 2, _ -> this.mkLoop (loopBody, 1, up)
                     | 0, 1 -> node1
                     | _ -> createCached (key)
-                | _, Loop(node = loopBody; low = low; up = up) when loopBody = node1 ->
+                | _, Loop(node = loopBody; field2 =low; up = up) when loopBody = node1 ->
                     match low, up with
                     | 2, _ -> this.mkLoop (loopBody, 1, up)
                     | 0, 1 -> node2
@@ -917,7 +917,7 @@ type internal RegexBuilder<'t
 
                 match this.Node(node1), this.Node(node2) with
                 // merge head
-                | Concat(head = chead1; tail = ctail1), Concat(head = chead2; tail = ctail2) when
+                | Concat(node =chead1; field2 =ctail1), Concat(node =chead2; field2 =ctail2) when
                     chead1 = chead2
                     ->
                     let newtail = this.mkOr2 (ctail1, ctail2)
@@ -925,10 +925,10 @@ type internal RegexBuilder<'t
                     addToCache v
                 // put anchor inside lookaround body
                 | (Begin | End),
-                  LookAround(
-                      node = lookBody; lookBack = lb; relativeTo = rel; pendingNullables = pen)
-                | LookAround(
-                    node = lookBody; lookBack = lb; relativeTo = rel; pendingNullables = pen),
+                  LookAhead(
+                      node = lookBody; field2 = rel; pendingNullables = pen)
+                | LookAhead(
+                    node = lookBody; field2 = rel; pendingNullables = pen),
                   (Begin | End) ->
                     let ancId =
                         if
@@ -941,8 +941,26 @@ type internal RegexBuilder<'t
                         else
                             node2
 
-                    b.mkLookaround (b.mkOr2 (ancId, lookBody), lb, rel, pen)
-                | Loop(node = loopBody; low = llow; up = lup), _ ->
+                    b.mkLookaround (b.mkOr2 (ancId, lookBody), false, rel, pen)
+                | (Begin | End),
+                  LookBehind(
+                      node = lookBody; field2 = rel; pendingNullables = pen)
+                | LookBehind(
+                    node = lookBody; field2 = rel; pendingNullables = pen),
+                  (Begin | End) ->
+                    let ancId =
+                        if
+                            (match this.Node(node1) with
+                             | Begin
+                             | End -> true
+                             | _ -> false)
+                        then
+                            node1
+                        else
+                            node2
+
+                    b.mkLookaround (b.mkOr2 (ancId, lookBody), true, rel, pen)
+                | Loop(node = loopBody; field2 =llow; up = lup), _ ->
                     match this.Node(loopBody) with
                     | Singleton lpred ->
                         let other = node2
@@ -963,7 +981,7 @@ type internal RegexBuilder<'t
                         else
                             createCachedSubsume (node1, node2)
                     | _ -> createCachedSubsume (node1, node2)
-                | _, Loop(node = loopBody; low = llow; up = lup) ->
+                | _, Loop(node = loopBody; field2 =llow; up = lup) ->
                     match this.Node(loopBody) with
                     | Singleton lpred ->
                         let other = node1
@@ -1194,7 +1212,7 @@ type internal RegexBuilder<'t
                             for node in nodes do
                                 handleNode node
                         | Not(node = node) -> _and_complements.Add(node) |> ignore
-                        | Loop(node = body; low = 0; up = Int32.MaxValue) ->
+                        | Loop(node = body; field2 =0; up = Int32.MaxValue) ->
                             match this.Node(body) with
                             | Singleton _ -> singletonStarLoops.Add(deriv)
                             | _ -> derivatives.Add(deriv) |> ignore
@@ -1261,7 +1279,7 @@ type internal RegexBuilder<'t
                                 derivatives
                                 |> Seq.groupBy (fun v ->
                                     match this.Node(v) with
-                                    | Concat(head = head; tail = tail) ->
+                                    | Concat(node =head; field2 =tail) ->
                                         let fixlen = this.GetFixedLength(head)
 
                                         match fixlen with
@@ -1292,7 +1310,7 @@ type internal RegexBuilder<'t
                                             res
                                             |> Seq.map (fun v ->
                                                 match this.Node(v) with
-                                                | Concat(head = head; tail = tail) ->
+                                                | Concat(node =head; field2 =tail) ->
                                                     head, tail
                                                 | other ->
                                                     failwith
@@ -1457,8 +1475,8 @@ type internal RegexBuilder<'t
 
         for der in derivatives do
             match this.Node(der) with
-            | LookAround(
-                node = node; lookBack = false; relativeTo = rel; pendingNullables = pending) ->
+            | LookAhead(
+                node = node; field2 = rel; pendingNullables = pending) ->
                 num_lookaheads <- num_lookaheads + 1
                 min_rel <- min min_rel rel
                 let nulls = pending
@@ -1506,7 +1524,7 @@ type internal RegexBuilder<'t
 
         for der in derivatives do
             match this.Node(der) with
-            | Concat(head = head; tail = tail) ->
+            | Concat(node =head; field2 =tail) ->
                 match dict.TryGetValue(head) with
                 | true, v -> v.Add(der, tail)
                 | _ ->
@@ -1554,9 +1572,9 @@ type internal RegexBuilder<'t
 
         for der in derivatives do
             match this.Node(der) with
-            | Concat(head = concatHead; tail = tail) ->
+            | Concat(node =concatHead; field2 =tail) ->
                 match this.Node(concatHead) with
-                | Loop(low = 0; up = upper; node = body) when upper < Int32.MaxValue ->
+                | Loop(field2 =0; up = upper; node = body) when upper < Int32.MaxValue ->
                     _or_values.Add(der)
                     let key = struct (body, tail)
 
@@ -1571,7 +1589,7 @@ type internal RegexBuilder<'t
                     | true, (low, up) -> _or_loop_dict[key] <- struct (min low 1, max up 1)
                     | _ -> _or_loop_dict.Add(struct (concatHead, tail), struct (1, 1))
                 | _ -> ()
-            | Loop(low = 0; up = upper; node = body) when upper < Int32.MaxValue ->
+            | Loop(field2 =0; up = upper; node = body) when upper < Int32.MaxValue ->
                 _or_values.Add(der)
                 let key = struct (body, RegexNodeId.EPS)
 
@@ -1589,9 +1607,9 @@ type internal RegexBuilder<'t
 
         for der in _or_values do
             match this.Node(der) with
-            | Concat(head = concatHead; tail = tail) ->
+            | Concat(node =concatHead; field2 =tail) ->
                 match this.Node(concatHead) with
-                | Loop(low = 0; up = upper; node = body) when upper < Int32.MaxValue ->
+                | Loop(field2 =0; up = upper; node = body) when upper < Int32.MaxValue ->
                     let key = struct (body, tail)
                     let struct (_, maxv) = _or_loop_dict[key]
 
@@ -1604,7 +1622,7 @@ type internal RegexBuilder<'t
                     if 1 < maxv then
                         derivatives.Remove(der)
                 | _ -> ()
-            | Loop(low = 0; up = upper; node = body) when upper < Int32.MaxValue ->
+            | Loop(field2 =0; up = upper; node = body) when upper < Int32.MaxValue ->
                 let key = struct (body, RegexNodeId.EPS)
                 let struct (_, maxv) = _or_loop_dict[key]
 
@@ -1642,12 +1660,12 @@ type internal RegexBuilder<'t
 
         for der in derivatives do
             match this.Node(der) with
-            | Concat(head = concatHead; tail = tail) ->
+            | Concat(node =concatHead; field2 =tail) ->
                 match this.Node(concatHead) with
-                | Loop(low = low; up = up; node = body) ->
+                | Loop(field2 =low; up = up; node = body) ->
                     insertOverlappingRange struct (body, tail) struct (low, up)
                 | _ -> insertOverlappingRange struct (concatHead, tail) struct (1, 1)
-            | Loop(low = low; up = up; node = body) when up < int rsint.MaxValue ->
+            | Loop(field2 =low; up = up; node = body) when up < int rsint.MaxValue ->
                 let range = struct (low, up)
                 insertOverlappingRange struct (body, RegexNodeId.EPS) range
             | Singleton _ ->
@@ -1794,17 +1812,17 @@ type internal RegexBuilder<'t
                     | _ when deriv = RegexNodeId.EPS ->
                         status <- status ||| MkOrFlags.ContainsEpsilon
                     | Or(nodes) -> nodes |> iter handleNode
-                    | Concat(head = concatHead) ->
+                    | Concat(node =concatHead) ->
                         match this.Node(concatHead) with
-                        | Loop(low = 0; up = upper) when upper <> Int32.MaxValue ->
+                        | Loop(field2 =0; up = upper) when upper <> Int32.MaxValue ->
                             zeroloops <- zeroloops + 1
                             derivatives.Add(deriv)
                         | _ -> derivatives.Add(deriv)
-                    | Loop(low = 0; up = upper) when upper <> Int32.MaxValue ->
+                    | Loop(field2 =0; up = upper) when upper <> Int32.MaxValue ->
                         // uniqueHeads
                         zeroloops <- zeroloops + 1
                         derivatives.Add(deriv)
-                    | Loop(node = loopBody; low = 0; up = Int32.MaxValue) ->
+                    | Loop(node = loopBody; field2 =0; up = Int32.MaxValue) ->
                         match this.Node(loopBody) with
                         | Singleton _ ->
                             singletonStarLoops.Add(deriv)
@@ -1938,13 +1956,13 @@ type internal RegexBuilder<'t
             | _ when _infos[inner].NodeFlags.ContainsLookaround ->
                 raise (
                     UnsupportedPatternException(
-                        "lookarounds inside complement are not yet allowed"
+                        "lookarounds inside complement are unsupported"
                     )
                 )
             | _ when _infos[inner].NodeFlags.DependsOnAnchor ->
                 raise (
                     UnsupportedPatternException(
-                        "anchors inside complement are currently unsupported"
+                        "anchors inside complement are unsupported"
                     )
                 )
             | _ ->
@@ -2063,22 +2081,22 @@ type internal RegexBuilder<'t
                     ->
                     head
                 // sub 01: (.*1)?(.*1){2,} -> (.*1){2,}
-                | Loop(node = lhead1; low = low1; up = up1),
-                  Loop(node = lhead2; low = low2; up = up2) when lhead1 = lhead2 ->
+                | Loop(node = lhead1; field2 = low1; up = up1),
+                  Loop(node = lhead2; field2 = low2; up = up2) when lhead1 = lhead2 ->
                     let newHead = this.mkLoop (lhead1, incrLoop low1 low2, incrLoop up1 up2)
 
                     _nodeCache.Add(KConcat(head, tail), newHead)
                     newHead
                 // sub 02: (.*1)?.*1 -> .*1
-                | Loop(node = lhead1; low = low1; up = up1), _ when lhead1 = tail ->
+                | Loop(node = lhead1; field2 = low1; up = up1), _ when lhead1 = tail ->
                     let newHead = this.mkLoop (lhead1, incrLoop low1 1, incrLoop up1 1)
 
                     _nodeCache.Add(KConcat(head, tail), newHead)
                     newHead
                 // merge loops 2
-                | _, Concat(head = concatHead; tail = tail2) ->
+                | _, Concat(node = concatHead; field2 = tail2) ->
                     match this.Node(concatHead) with
-                    | Loop(node = lhead2; low = low; up = up) when head = lhead2 ->
+                    | Loop(node = lhead2; field2 = low; up = up) when head = lhead2 ->
                         let newHead = this.mkLoop (head, incrLoop low 1, incrLoop up 1)
 
                         let v = this.mkConcat2 (newHead, tail2)
@@ -2087,9 +2105,9 @@ type internal RegexBuilder<'t
                     | _ ->
                     // merge loops 3
                     match this.Node(head) with
-                    | Loop(node = lhead1; low = low1; up = up1) ->
+                    | Loop(node = lhead1; field2 = low1; up = up1) ->
                         match this.Node(concatHead) with
-                        | Loop(node = lhead2; low = low2; up = up2) when lhead1 = lhead2 ->
+                        | Loop(node = lhead2; field2 = low2; up = up2) when lhead1 = lhead2 ->
                             let newHead =
                                 this.mkLoop (lhead1, incrLoop low1 low2, incrLoop up1 up2)
 
@@ -2128,9 +2146,9 @@ type internal RegexBuilder<'t
 
                 match this.Node(head), this.Node(tail) with
                 // // (?<=a.*)(?<=\W)aa to (?<=_*a.*&_*\W)aa
-                | LookAround(node = node1; lookBack = true), Concat(head = concatHead2) ->
+                | LookBehind(node = node1), Concat(node =concatHead2) ->
                     match this.Node(concatHead2) with
-                    | LookAround(node = node2; lookBack = true) ->
+                    | LookBehind(node = node2) ->
                         let (SplitTail this.Resolve (_, tail2)) = tail
 
                         let combined =
@@ -2146,8 +2164,8 @@ type internal RegexBuilder<'t
                         v
                     | _ -> createCached (head, tail)
                 // (?<=a.*)(?<=\W) to (?<=_*a.*&_*\W)
-                | LookAround(node = node1; lookBack = true),
-                  LookAround(node = node2; lookBack = true) ->
+                | LookBehind(node = node1),
+                  LookBehind(node = node2) ->
                     let combined =
                         this.mkAndSeq [
                             this.prependTSIfNotAnchor (node1)
@@ -2158,14 +2176,14 @@ type internal RegexBuilder<'t
                     _nodeCache.Add(KConcat(head, tail), v)
                     v
                 // (?<=.*).* to .* or (?<=.*).*ab to .*ab
-                | LookAround(node = lookNode; lookBack = true), _ when
+                | LookBehind(node = lookNode), _ when
                     (match (|PredStar|_|) resolve lookNode with
                      | ValueSome _ -> true
                      | _ -> false)
                     && (lookNode = tail
                         || (
                             match this.Node(tail) with
-                            | Concat(head = chead) -> lookNode = chead
+                            | Concat(node =chead) -> lookNode = chead
                             | _ -> false
                         ))
                     ->
@@ -2173,15 +2191,13 @@ type internal RegexBuilder<'t
                     _nodeCache.Add(KConcat(head, tail), v)
                     v
                 // (?=a.*)(?=\W) to (?=a.*_*&\W_*)
-                | LookAround(
+                | LookAhead(
                     node = node1
-                    lookBack = false
-                    relativeTo = rel1
+                    field2 = rel1
                     pendingNullables = pending1),
-                  LookAround(
+                  LookAhead(
                       node = node2
-                      lookBack = false
-                      relativeTo = _
+                      field2 = _
                       pendingNullables = pending2) ->
                     assert pending2.IsEmpty
 
@@ -2195,7 +2211,7 @@ type internal RegexBuilder<'t
 
                     _nodeCache.Add(KConcat(head, tail), v)
                     v
-                | LookAround(node = lookBody; lookBack = false), _ when
+                | LookAhead(node = lookBody), _ when
                     lookBody = RegexNodeId.EPS && not (_infos[tail].IsAlwaysNullable)
                     ->
                     let v =
@@ -2240,7 +2256,7 @@ type internal RegexBuilder<'t
                         | _ ->
 
                         match this.Node(tail) with
-                        | Concat(head = ch) ->
+                        | Concat(node =ch) ->
                             match (|PredStar|_|) this.Resolve ch with
                             | ValueSome p -> ValueSome p
                             | _ -> ValueNone
@@ -2281,7 +2297,7 @@ type internal RegexBuilder<'t
                     | _ -> createCached (head, tail)
 
                 // normalize concat
-                | Concat(head = h1; tail = h2), _ ->
+                | Concat(node =h1; field2 =h2), _ ->
                     // (ab)(ab){10} -> (ab){11}
                     match this.Node(tail) with
                     | Loop(lbody, low, up) when head = lbody ->
@@ -2314,14 +2330,14 @@ type internal RegexBuilder<'t
 
             match this.Node(tailNode) with
             // sub 03: .*1.*1$ -> (.*1){2,}
-            | Concat(head = t1; tail = t2) when n1 = t1 && n2 = t2 ->
+            | Concat(node =t1; field2 =t2) when n1 = t1 && n2 = t2 ->
                 let newHead = this.mkLoop (tailNode, 2, 2)
                 _nodeCache.Add(KConcat(head, tail), newHead)
                 newHead
             // sub 04 + sub 05
-            | Concat(head = t1; tail = tt) ->
+            | Concat(node =t1; field2 =tt) ->
                 match this.Node(tt) with
-                | Concat(head = t2; tail = t3) when n1 = t1 && n2 = t2 ->
+                | Concat(node =t2; field2 =t3) when n1 = t1 && n2 = t2 ->
                     let inner = this.mkConcat2 (n1, n2)
                     let newHead = this.mkConcat2 (this.mkLoop (inner, 2, 2), t3)
                     _nodeCache.Add(KConcat(head, tail), newHead)
@@ -2329,7 +2345,7 @@ type internal RegexBuilder<'t
                 | _ ->
 
                 match this.Node(t1) with
-                | Loop(node = lnode; low = low; up = up) when inner = lnode ->
+                | Loop(node = lnode; field2 =low; up = up) when inner = lnode ->
                     let inner = this.mkLoop (lnode, incrLoop low 1, incrLoop up 1)
                     let newHead = this.mkConcat2 (inner, tt)
                     _nodeCache.Add(KConcat(head, tail), newHead)
@@ -2378,7 +2394,7 @@ type internal RegexBuilder<'t
         | Loop(loopBody, 0, 1) ->
             let loopResult =
                 match this.Node(loopBody) with
-                | Concat(head = ch) ->
+                | Concat(node =ch) ->
                     match (|PredStar|_|) resolve ch, (|PredStar|_|) resolve tail with
                     | ValueSome _, ValueSome p2 ->
                         let subMinterm = _infos[head].SubsumedByMinterm
@@ -2450,7 +2466,7 @@ type internal RegexBuilder<'t
 
                     match this.Node(body) with
                     // not always correct but does not make a difference
-                    | Concat(head = ch; tail = ct) when
+                    | Concat(node =ch; field2 =ct) when
                         (ch = RegexNodeId.TOP_STAR)
                         && (
                             match this.Node(ct) with
@@ -2484,7 +2500,10 @@ type internal RegexBuilder<'t
 
                 let info = this.CreateInfo(flags, solver.Full, infoNullables)
 
-                let id = _registerNode (LookAround(body, lookBack, rel, pendingNullable)) info
+                let node =
+                    if lookBack then LookBehind(body, rel, pendingNullable)
+                    else LookAhead(body, rel, pendingNullable)
+                let id = _registerNode node info
                 this.CacheLengths(id)
 
                 _nodeCache.Add(key2, id)
@@ -2513,16 +2532,16 @@ type internal RegexBuilder<'t
             node, []
         else
             match this.Node(node) with
-            | Concat(head = chead; tail = ctail) ->
+            | Concat(node =chead; field2 =ctail) ->
                 match this.Node(chead) with
-                | LookAround(lookBack = true) -> node, []
+                | LookBehind _ -> node, []
                 | _ ->
 
                 match this.Node(ctail) with
-                | LookAround(lookBack = false) -> chead, [ ctail ]
-                | Concat(head = ch; tail = ct) ->
+                | LookAhead _ -> chead, [ ctail ]
+                | Concat(node =ch; field2 =ct) ->
                     match this.Node(ch) with
-                    | LookAround(lookBack = false) ->
+                    | LookAhead _ ->
                         let innerHead, innerSuffixes = this.stripSuffixes ct
                         assert (innerHead = RegexNodeId.EPS)
                         chead, ch :: innerSuffixes
@@ -2532,8 +2551,8 @@ type internal RegexBuilder<'t
                 | _ ->
                     let hd2, suf = this.stripSuffixes ctail
                     this.mkConcat2 (chead, hd2), suf
-            | LookAround(lookBack = false) -> RegexNodeId.EPS, [ node ]
-            | LookAround(lookBack = true) -> node, []
+            | LookAhead _ -> RegexNodeId.EPS, [ node ]
+            | LookBehind _ -> node, []
             | Or(nodes = _) ->
                 match this.GetFixedLength(node) with
                 | ValueSome 0 -> RegexNodeId.EPS, [ node ]
@@ -2547,18 +2566,18 @@ type internal RegexBuilder<'t
             [], node, []
         else
             match this.Node(node) with
-            | Concat(head = head; tail = tail) ->
+            | Concat(node =head; field2 =tail) ->
                 match this.Node(head) with
-                | LookAround(lookBack = true) ->
+                | LookBehind _ ->
                     let prf, innerNode, suf = this.stripPrefixSuffix tail
                     head :: prf, innerNode, suf
                 | _ ->
 
                 match this.Node(tail) with
-                | LookAround(lookBack = false) -> [], head, [ tail ]
-                | Concat(head = ch; tail = ct) ->
+                | LookAhead _ -> [], head, [ tail ]
+                | Concat(node =ch; field2 =ct) ->
                     match this.Node(ch) with
-                    | LookAround(lookBack = false) ->
+                    | LookAhead _ ->
                         let innerHead, innerSuffixes = this.stripSuffixes ct
                         assert (innerHead = RegexNodeId.EPS)
                         [], head, ch :: innerSuffixes
@@ -2591,8 +2610,8 @@ type internal RegexBuilder<'t
 
                     let hd2, suf = this.stripSuffixes tail
                     hp, this.mkConcat2 (h, hd2), suf
-            | LookAround(lookBack = false) -> [], RegexNodeId.EPS, [ node ]
-            | LookAround(lookBack = true) -> [ node ], RegexNodeId.EPS, []
+            | LookAhead _ -> [], RegexNodeId.EPS, [ node ]
+            | LookBehind _ -> [ node ], RegexNodeId.EPS, []
             | Or(nodes = _) ->
                 // this isnt really supported but will work in zero-width cases
                 if this.anchors._dollarAnchor.Value = node then
@@ -2608,7 +2627,7 @@ type internal RegexBuilder<'t
 
     member this.collectConcatNodes(node: RegexNodeId) =
         match this.Node(node) with
-        | Concat(head = head; tail = tail) -> head :: this.collectConcatNodes tail
+        | Concat(node =head; field2 =tail) -> head :: this.collectConcatNodes tail
         | _ -> [ node ]
 
 
@@ -2623,7 +2642,7 @@ type internal RegexBuilder<'t
         =
         let lookaheadBody =
             match this.Node(origlookahead) with
-            | LookAround(node = nodeBody) ->
+            | LookAhead(node = nodeBody) ->
                 let (SplitTail this.Resolve (hd, t)) = nodeBody
 
                 if t = RegexNodeId.TOP_STAR then
@@ -2632,9 +2651,9 @@ type internal RegexBuilder<'t
                     nodeBody
             | other ->
                 failwith
-                    $"expected LookAround node in attemptRewriteCommonLookahead, got: {other}"
+                    $"expected LookAhead node in attemptRewriteCommonLookahead, got: {other}"
 
-        let isNonWordRight = origlookahead = _anchors._nonWordRight.Value
+        let isNonWordRight = origlookahead =_anchors._nonWordRight.Value
 
         match this.Node(lookaheadBody), this.Node(remainingTail) with
         // rewriting common word border uses
@@ -2651,7 +2670,7 @@ type internal RegexBuilder<'t
             let conds = b.mkOr2 (newNode, RegexNodeId.END_ANCHOR)
             ValueSome(conds)
         // \b.+
-        | _, Loop(node = loopBody; low = 1; up = Int32.MaxValue) when
+        | _, Loop(node = loopBody; field2 =1; up = Int32.MaxValue) when
             isNonWordRight
             && (
                 match this.Node(loopBody) with
@@ -2678,11 +2697,11 @@ type internal RegexBuilder<'t
                 )
             )
         // \b(/[abc]*)
-        | _, Loop(node = loopBody; low = 0) when
+        | _, Loop(node = loopBody; field2 =0) when
             isNonWordRight
             && (
                 match this.Node(loopBody) with
-                | Concat(head = ch) ->
+                | Concat(node =ch) ->
                     (match this.Node(ch) with
                      | Singleton _ -> true
                      | _ -> false)
@@ -2710,7 +2729,7 @@ type internal RegexBuilder<'t
                     }
                 )
             )
-        | Singleton _, Loop(low = low) when low > 0 ->
+        | Singleton _, Loop(field2 =low) when low > 0 ->
             ValueSome(
                 b.mkAndSeq (
                     seq {
@@ -2767,8 +2786,8 @@ type internal RegexBuilder<'t
                 this.Node(nodesLeftToRight[len - 2]), this.Node(nodesLeftToRight[len - 1])
             with
             // merge suffixes
-            | LookAround(node = node1; lookBack = false),
-              LookAround(node = node2; lookBack = false) ->
+            | LookAhead(node = node1),
+              LookAhead(node = node2) ->
                 let combined =
                     this.mkAndSeq [
                         this.mkConcat2 (node1, RegexNodeId.TOP_STAR)
@@ -2789,8 +2808,8 @@ type internal RegexBuilder<'t
 
                 match this.Node(nodesLeftToRight[0]), this.Node(nodesLeftToRight[1]) with
                 // merge prefixes
-                | LookAround(node = node1; lookBack = true),
-                  LookAround(node = node2; lookBack = true) ->
+                | LookBehind(node = node1),
+                  LookBehind(node = node2) ->
                     let combined =
                         this.mkAndSeq [
                             this.mkConcat2 (RegexNodeId.TOP_STAR, node1)
@@ -2824,7 +2843,7 @@ type internal RegexBuilder<'t
                         else
                             match this.Node(curr) with
                             // rewrite lookbacks
-                            | LookAround(node = lookBody; lookBack = true) ->
+                            | LookBehind(node = lookBody) ->
                                 // if prefix do nothing
                                 if i = 0 then
                                     ()
@@ -2926,7 +2945,7 @@ type internal RegexBuilder<'t
 
                                     | _ -> throwExn (curr) |> ignore
                             // rewrite lookaheads
-                            | LookAround(node = lookBody; lookBack = false) ->
+                            | LookAhead(node = lookBody) ->
                                 // if suffix do nothing
                                 if i + 1 = nodesLeftToRight.Length then
                                     ()
@@ -3006,7 +3025,7 @@ type internal RegexBuilder<'t
 
                                         rewrittenNode <- ValueSome newNode
                                     // attempt adding more context to the lookaround
-                                    | Concat(head = chead; tail = ctail) ->
+                                    | Concat(node =chead; field2 =ctail) ->
                                         let remainingHeads = nodesLeftToRight[.. i - 1]
                                         let remainingTails = nodesLeftToRight[i + 1 ..]
 
@@ -3062,12 +3081,12 @@ type internal RegexBuilder<'t
             match this.Node(body), lower, upper with
             | _, 0, 0 -> RegexNodeId.EPS
             | _, 1, 1 -> body
-            | Loop(node = _; low = 0; up = Int32.MaxValue), 0, _ -> body
-            | Loop(node = inner; low = 0; up = 1), 0, 1 -> this.mkLoop (inner, lower, upper)
-            | LookAround(lookBack = true), 0, _ -> RegexNodeId.EPS
-            | LookAround(lookBack = true), _, _ -> body
+            | Loop(node = _; field2 =0; up = Int32.MaxValue), 0, _ -> body
+            | Loop(node = inner; field2 =0; up = 1), 0, 1 -> this.mkLoop (inner, lower, upper)
+            | LookBehind _, 0, _ -> RegexNodeId.EPS
+            | LookBehind _, _, _ -> body
             // (.*a){5} -> (.*a){5,}
-            | Concat(head = ch; tail = ct), lower, upper ->
+            | Concat(node =ch; field2 =ct), lower, upper ->
                 match (|PredStar|_|) this.Resolve ch with
                 | ValueSome pstar ->
                     let tailSubMt = _infos[ct].SubsumedByMinterm

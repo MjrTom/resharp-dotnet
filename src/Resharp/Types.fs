@@ -173,12 +173,14 @@ module RegexNodeId =
 [<NoComparison; DebuggerDisplay("{ToString()}"); Struct>]
 type internal RegexNode<'tset when TSet<'tset> and 'tset: equality> =
     /// RE.RE
-    | Concat of head: RegexNodeId * tail: RegexNodeId
-
+    /// the "field2" naming is a bit unfortunate but it allows us to 
+    /// reuse the same memory struct fields 
+    | Concat of node: RegexNodeId * field2: RegexNodeId 
     /// 𝜓 predicate
     | Singleton of set: 'tset
     /// RE{𝑚, 𝑛}, \* = {0,int32.max}
-    | Loop of node: RegexNodeId * low: int * up: int
+    /// field2 is lower bound, up is upper bound
+    | Loop of node: RegexNodeId * field2: int * up: int
     /// RE|RE
     | Or of nodes: RegexNodeId[] // <- both | and & are really a set!
     /// RE&RE
@@ -192,10 +194,15 @@ type internal RegexNode<'tset when TSet<'tset> and 'tset: equality> =
     /// since it's correct in RE# by construction
     /// and it's trivial to apply intersection on it:
     ///     ex. (?<=B)E(?=A) & (?<=B2)E2(?=A2) => (?<=\_\*(B&B2))(E&E2)(?=(A&A2)\_\*)
-    | LookAround of
+    /// lookahead (?=...)
+    | LookAhead of
         node: RegexNodeId *
-        lookBack: bool *
-        relativeTo: RegexNodeId *
+        field2: int * // field2: relativeTo
+        pendingNullables: RefSet
+    /// lookbehind (?<=...)
+    | LookBehind of
+        node: RegexNodeId *
+        field2: int * // field2: relativeTo
         pendingNullables: RefSet
     | Begin
     | End
@@ -432,7 +439,7 @@ module internal Helpers =
 
                 inner + loopCount
 
-        | LookAround(body, lookBack, _, pending) ->
+        | LookAhead(body, _, pending) ->
             let inner =
                 match print body with
                 | s when s.EndsWith "_*" -> s.Substring(0, s.Length - 2)
@@ -440,20 +447,27 @@ module internal Helpers =
                 | s -> s
 
             let pending = if pending.IsEmpty then "" else "{...}"
+            let result = $"(?={inner})" + pending
 
-            let result =
-                match lookBack with
-                | false -> $"(?={inner})"
-                | true -> $"(?<={inner})"
-                + pending
+            match result with
+            | @"(?=(\n|\z))"
+            | @"(?=(\z|\n))" -> "$"
+            | _ -> result
+        | LookBehind(body, _, pending) ->
+            let inner =
+                match print body with
+                | s when s.EndsWith "_*" -> s.Substring(0, s.Length - 2)
+                | s when s.StartsWith "_*" -> s.Substring(2)
+                | s -> s
+
+            let pending = if pending.IsEmpty then "" else "{...}"
+            let result = $"(?<={inner})" + pending
 
             match result with
             | @"(?<=(\n|\A))"
             | @"(?<=(\A|\n))" -> "^"
-            | @"(?=(\n|\z))"
-            | @"(?=(\z|\n))" -> "$"
             | _ -> result
-        | Concat(head = h; tail = t) -> $"{print h}{print t}"
+        | Concat(node = h; field2 = t) -> $"{print h}{print t}"
         | End -> @"\z"
         | Begin -> @"\A"
 

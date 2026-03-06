@@ -121,7 +121,7 @@ type internal RegexMatcher<'t when 't: struct and TSet<'t> and 't: equality>
                 let isTrivial =
                     match _b.Node(state.Node) with
                     | Singleton _ -> true
-                    | Concat(head = h; tail = _) ->
+                    | Concat(node = h; field2 = _) ->
                         match _b.Node(h) with
                         | Singleton _ -> true
                         | _ -> false
@@ -251,7 +251,7 @@ type internal RegexMatcher<'t when 't: struct and TSet<'t> and 't: equality>
                                         let info = _b.Info(v)
                                         info.PendingNullables.IsEmpty && info.CanBeNullable
                                     )
-                                | Loop(low = 0) -> true
+                                | Loop(field2 = 0) -> true
                                 | _ -> false
                             else
                                 false

@@ -595,7 +595,7 @@ module Fsil =
             let mutable i = 0
 
             while i < x.Count do
-                dest[i] <- f x[i]
+                dest.Add(f x[i])
                 i <- i + 1
 
             dest

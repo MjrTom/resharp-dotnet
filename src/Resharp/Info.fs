@@ -30,12 +30,12 @@ module Node =
             let allSome = lengths |> forall is_some
             if allSome then lengths |> Array.maxBy value else ValueNone
         | Singleton _ -> ValueSome 1
-        | Loop(node = body; low = low) ->
+        | Loop(node = body; field2 = low) ->
             match resolve body with
             | Singleton _ -> ValueSome low
             | _ -> ValueNone
         | Not _ -> ValueNone
-        | LookAround _ -> ValueSome 0
+        | LookAhead _ | LookBehind _ -> ValueSome 0
         | Begin
         | End -> ValueSome 0
 
@@ -63,7 +63,7 @@ module Node =
             | Singleton _ -> if up = Int32.MaxValue then ValueNone else ValueSome up
             | _ -> ValueNone
         | Not _ -> ValueNone
-        | LookAround _ -> ValueSome 0
+        | LookAhead _ | LookBehind _ -> ValueSome 0
         | Begin
         | End -> ValueSome 0
 
@@ -148,7 +148,7 @@ module rec Flags =
                     NodeFlags.HasSuffixLookaheadFlag
                 else
                     match resolve tail with
-                    | LookAround(lookBack = false) -> NodeFlags.HasSuffixLookaheadFlag
+                    | LookAhead _ -> NodeFlags.HasSuffixLookaheadFlag
                     | _ -> NodeFlags.None
 
             let pref =
@@ -158,7 +158,7 @@ module rec Flags =
                     NodeFlags.HasPrefixLookbehindFlag
                 else
                     match resolve head with
-                    | LookAround(lookBack = true) -> NodeFlags.HasPrefixLookbehindFlag
+                    | LookBehind _ -> NodeFlags.HasPrefixLookbehindFlag
                     | _ -> NodeFlags.None
 
             pref ||| suf

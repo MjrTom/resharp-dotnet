@@ -248,17 +248,17 @@ let rec private getPrefixNodeCore
     let recurse = getPrefixNodeCore anchorOpt cache
 
     match b.Node(node) with
-    | Loop(node = body; low = n; up = _) -> b.mkLoop (body, n, n)
-    | Concat(head = head; tail = tail) ->
+    | Loop(node = body; field2 = n; up = _) -> b.mkLoop (body, n, n)
+    | Concat(node = head; field2 = tail) ->
         match b.Node(head) with
-        | Loop(low = 0; up = Int32.MaxValue) -> recurse tail
-        | Loop(low = 0; up = 1) -> recurse tail
-        | Loop(node = body; low = n; up = Int32.MaxValue) ->
+        | Loop(field2 = 0; up = Int32.MaxValue) -> recurse tail
+        | Loop(field2 = 0; up = 1) -> recurse tail
+        | Loop(node = body; field2 = n; up = Int32.MaxValue) ->
             b.mkConcat2 (b.mkLoop (body, n, n), tail)
         | Or(nodes = xs) ->
             let newOr = xs |> Seq.map recurse |> b.mkOrSeq
             b.mkConcat2 (newOr, tail)
-        | LookAround(node = lookbody; lookBack = true) ->
+        | LookBehind(node = lookbody) ->
             match b.Node(lookbody) with
             | Or(nodes = nodes) when anchorOpt && b.Info(lookbody).NodeFlags.DependsOnAnchor ->
                 let remaining =
@@ -271,7 +271,7 @@ let rec private getPrefixNodeCore
                     |> b.mkOrSeq
 
                 match b.Node(remaining), b.Node(tail) with
-                | Singleton phead, Concat(head = ch; tail = ctail) ->
+                | Singleton phead, Concat(node = ch; field2 = ctail) ->
                     match (|PredStar|_|) resolve ch with
                     | ValueSome ploop ->
                         let merged = cache.Solver.Or(phead, ploop)
@@ -282,14 +282,14 @@ let rec private getPrefixNodeCore
                             recurse (b.mkConcat2 (remaining, tail))
                     | _ -> recurse (b.mkConcat2 (remaining, tail))
                 | _ -> recurse (b.mkConcat2 (remaining, tail))
-            | Concat(head = ch; tail = lookTail) ->
+            | Concat(node = ch; field2 = lookTail) ->
                 match ch = RegexNodeId.TOP_STAR with
                 | true -> recurse (b.mkConcat2 (lookTail, tail))
                 | _ -> getPrefixNodeCore true cache (b.mkConcat2 (lookbody, tail))
             | _ -> getPrefixNodeCore true cache (b.mkConcat2 (lookbody, tail))
         | _ -> node
     | And _ -> node
-    | LookAround(node = inner; lookBack = false) -> inner
+    | LookAhead(node = inner) -> inner
     | _ -> node
 
 let getPrefixNode (cache: RegexCache<'t>) (node: RegexNodeId) : RegexNodeId =
@@ -665,7 +665,7 @@ let findInitialOptimizations
                             trueStarredNode
                             prefix
 
-                    let searchPrefix = prefix |> Seq.map c.MintermSearchValues |> Seq.toArray
+                    let searchPrefix = prefix |> map c.MintermSearchValues |> Seq.toArray
 
                     // can not create a fast prefix if all are too common
                     if searchPrefix |> forall (isTooCommon c) then
@@ -731,12 +731,12 @@ let findInitialOptimizations
 
 let rec mkNodeWithoutLookbackPrefix (b: RegexBuilder<_>) (node: RegexNodeId) : RegexNodeId =
     match b.Node(node) with
-    | LookAround(lookBack = true) -> RegexNodeId.EPS
+    | LookBehind _ -> RegexNodeId.EPS
     | Begin
     | End -> RegexNodeId.EPS
-    | Concat(head = head; tail = tail) ->
+    | Concat(node = head; field2 = tail) ->
         match b.Node(head) with
-        | LookAround(lookBack = true) -> mkNodeWithoutLookbackPrefix b tail
+        | LookBehind _ -> mkNodeWithoutLookbackPrefix b tail
         | _ when b.Info(head).IsAlwaysNullable ->
             let convertedTail = mkNodeWithoutLookbackPrefix b tail
             b.mkConcat2 (head, convertedTail)
@@ -772,7 +772,7 @@ let rec getFixedPrefixLength (c: RegexCache<'t>) (node: RegexNodeId) =
         | Or(nodes = _) -> ValueNone, ValueSome node
         | And(nodes = _) -> ValueNone, ValueSome node
         | Singleton _ -> ValueSome(1 + acc), ValueNone
-        | Loop(node = body; low = low; up = up) ->
+        | Loop(node = body; field2 = low; up = up) ->
             match b.Node(body) with
             | Singleton _ when low = up -> ValueSome(low + acc), ValueNone
             | Singleton _ when low <> 0 ->
@@ -780,7 +780,7 @@ let rec getFixedPrefixLength (c: RegexCache<'t>) (node: RegexNodeId) =
                 ValueSome(low + acc), ValueSome(b.mkLoop (body, 0, remainingUp))
             | _ -> ValueNone, ValueSome node
         | Not _ -> ValueNone, ValueSome node
-        | LookAround _ -> ValueSome(0 + acc), ValueNone
+        | LookAhead _ | LookBehind _ -> ValueSome(0 + acc), ValueNone
         | Begin
         | End -> ValueSome(0 + acc), ValueNone
 
@@ -811,7 +811,7 @@ let inferLengthLookup
                 let stateId = getNodeId remaining
 
                 match b.Node(remaining) with
-                | Loop(node = body; low = 0; up = remainUp) ->
+                | Loop(node = body; field2 = 0; up = remainUp) ->
                     match b.Node(body) with
                     | Singleton pred when remainUp <= (int Byte.MaxValue) ->
                         LengthLookup.RemainingSets(
