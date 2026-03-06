@@ -121,8 +121,8 @@ type internal RegexMatcher<'t when 't: struct and TSet<'t> and 't: equality>
                 let isTrivial =
                     match _b.Node(state.Node) with
                     | Singleton _ -> true
-                    | Concat(node = h; field2 = _) ->
-                        match _b.Node(h) with
+                    | Concat nodes ->
+                        match _b.Node(nodes[0]) with
                         | Singleton _ -> true
                         | _ -> false
                     | _ -> false
@@ -133,12 +133,12 @@ type internal RegexMatcher<'t when 't: struct and TSet<'t> and 't: equality>
 
                     let mutable ss = _cache.Solver.Empty
 
-                    let transitions = _b.Info(state.Node).Transitions
+                    let transitions = _b.Transitions
 
                     for mt in minterms do
 
                         let der =
-                            match transitions.TryGetValue(mt) with
+                            match transitions.TryGetValue(struct(state.Node, mt)) with
                             | true, v -> v
                             | _ ->
                                 RegexNode.derivative (_b, LocationKind.Center, mt, state.Node)
@@ -246,12 +246,13 @@ type internal RegexMatcher<'t when 't: struct and TSet<'t> and 't: equality>
                             if nodeFlags.CanBeNullable then
                                 match _b.Node(node) with
                                 | Or(nodes = nodes) ->
-                                    nodes
-                                    |> exists (fun v ->
-                                        let info = _b.Info(v)
-                                        info.PendingNullables.IsEmpty && info.CanBeNullable
-                                    )
-                                | Loop(field2 = 0) -> true
+                                    let mutable found = false
+                                    for v in nodes do
+                                        if not found then
+                                            let info = _b.Info(v)
+                                            found <- info.PendingNullables.IsEmpty && info.CanBeNullable
+                                    found
+                                | Loop nodes when nodes[1] = 0 -> true
                                 | _ -> false
                             else
                                 false
@@ -1514,10 +1515,10 @@ type internal RegexMatcher<'t when 't: struct and TSet<'t> and 't: equality>
                 _cache.CharsetSolver
                 node
 
-        Types.Helpers.printNode _cache.CharsetSolver _cache.BddBuilder.Resolve bddNode
+        Types.Helpers.printNode _cache.CharsetSolver _cache.BddBuilder.GetTSet _cache.BddBuilder.Resolve bddNode
 
     member _.PrettyPrintMinterm(tset: 't) : string =
-        let bdd = _cache.Solver.convertToBdd (_cache.CharsetSolver, _cache.MtsBDD(), tset)
+        let bdd = _cache.Solver.ConvertToBDD(tset, _cache.CharsetSolver)
         BDD.prettyPrintBDD (_cache.CharsetSolver: CharSetSolver) (bdd)
 
     member _.GetBddNode(node) =
@@ -1556,7 +1557,7 @@ module internal Helpers =
         | n when n <= 64 ->
             let solver = UInt64Solver(bddMinterms)
 
-            let uintbuilder = RegexBuilder(converter, solver, charsetSolver, options)
+            let uintbuilder = RegexBuilder(converter, solver, charsetSolver, options, patternLength = bddBuilder.NodeCount)
 
             let rawNode =
                 Minterms.transform bddBuilder uintbuilder charsetSolver solver symbolicBddnode
@@ -1604,7 +1605,7 @@ module internal Helpers =
             // ideally subsume the minterms to 64 or below
             // but in case that is not possible, fall back to a bitvector implementation
             let solver = BitVectorSolver(bddMinterms)
-            let tsetbuilder = RegexBuilder(converter, solver, charsetSolver, options)
+            let tsetbuilder = RegexBuilder(converter, solver, charsetSolver, options, patternLength = bddBuilder.NodeCount)
 
             let rawNode =
                 (Minterms.transform bddBuilder tsetbuilder charsetSolver solver)

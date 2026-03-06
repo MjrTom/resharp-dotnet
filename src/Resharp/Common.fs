@@ -12,33 +12,34 @@ open Resharp.Runtime
 [<AllowNullLiteral>]
 [<Sealed>]
 type ResharpOptions() =
-    /// default: 2048, initial dfa size, can increase initial size to prevent dynamic array growth during match time
+    /// default: 2048, Initial dfa size, can increase initial size to prevent dynamic array growth during match time
     member val InitialDfaCapacity = 2048 with get, set
-    /// default: 100_000, maximum dfa size, symbolic DFA-s are generally very small,
+    /// default: 100_000, Maximum dfa size, symbolic DFA-s are generally very small,
     /// but lookarounds may create arbitrarily large state spaces depending on input length.
-    /// this sets a hard limit to the number of states created and throws an exception if it is reached
+    /// This sets a hard limit to the number of states created and throws an exception if it is reached
     member val MaxDfaCapacity = 100_000 with get, set
-    /// default: true, attempt to make smaller alternations at the cost of initialization time
+    /// default: true, Attempt to make smaller alternations at the cost of initialization time
     member val MinimizePattern = true with get, set
-    /// default: 20, maximum string literal prefix length.
+    /// default: 20, Maximum string literal prefix length.
     /// generally does not make much difference
     member val MaxPrefixLength = 20 with get, set
-    /// default: true, attempt to optimize lookaround prefixes.
+    /// default: true, Attempt to optimize lookaround prefixes.
     /// can be expensive with unbounded lookarounds
     member val FindLookaroundPrefix = true with get, set
     /// default: 200, increases search-time performance for large regexes at the expense of building the engine
     member val FindPotentialStartSizeLimit = 200 with get, set
-    /// default: true, case insensitive k includes Kelvin symbol (K), case insensitive i includes turkish I (ı) etc..
+    /// default: true, Case insensitive k includes Kelvin symbol (K), case insensitive i includes turkish I (ı) etc..
     /// these cost a lot for string literal optimizations and are disabled in HighThroughput defaults
+    /// this makes RE# more competitive in ASCII benchmarks, but otherwise it doesn't really matter
     member val UseDotnetUnicode = true with get, set
 
     member val IgnoreCase = false with get, set
     /// default:2000
     member val StartsetInferenceLimit = 2000 with get, set
-    /// default:100, full dfa compilation state space threshold
+    /// default:100, Full dfa compilation state space threshold
     member val DfaThreshold = 100 with get, set
 
-    /// attempt more expensive optimizations for high-throughput
+    /// Attempt more expensive optimizations for high-throughput
     static member HighThroughputDefaults =
         ResharpOptions(
             FindPotentialStartSizeLimit = 1000,
@@ -47,7 +48,7 @@ type ResharpOptions() =
             DfaThreshold = 100
         )
 
-    /// skip all expensive optimizations as it's likely going to be used and discarded
+    /// Skip all expensive optimizations as it's likely going to be used and discarded
     static member SingleUseDefaults =
         ResharpOptions(
             FindPotentialStartSizeLimit = 0,
@@ -169,17 +170,6 @@ module internal BDD =
             result
 
 
-module internal Memory =
-    let inline forall ([<InlineIfLambda>] f) (mem: Memory<'t>) =
-        let span = mem.Span
-        let mutable e = span.GetEnumerator()
-        let mutable forall = true
-
-        while forall && e.MoveNext() do
-            forall <- f e.Current
-
-        forall
-
 
 type TSet<'t when 't :> IEquatable<'t> and 't :> IComparable<'t> and 't: equality> = 't
 
@@ -201,39 +191,6 @@ module Common =
             member this.notElemOfSet (predicate: 't) (locationMinterm: 't) =
                 this.IsEmpty(this.And(locationMinterm, predicate))
 
-            [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
-            member this.contains (larger: 't) (smaller: 't) =
-                let overlapped = this.And(smaller, larger)
-
-                match box overlapped, box smaller with
-                | :? uint64 as ov, (:? uint64 as sm) -> ov = sm
-                | :? BDD as ov, (:? BDD as sm) -> ov = sm
-                | :? BitVector as ov, (:? BitVector as sm) -> ov = sm
-                | _ -> failwith "invalid set"
-
-            member this.convertToBdd(solver: CharSetSolver, minterms: BDD[], set: 't) =
-                match box set with
-                | :? uint64 as v ->
-                    let partition = minterms
-                    let mutable result = BDD.False
-
-                    if v <> 0uL then
-                        for i = 0 to partition.Length - 1 do
-                            if (v &&& (uint64 1 <<< i)) <> 0uL then
-                                result <- solver.Or(result, partition[i])
-
-                    result
-                | :? Resharp.Runtime.BitVector as v ->
-                    let partition = minterms
-                    let mutable result = BDD.False
-
-                    if not (v.Equals(this.Empty)) then
-                        for i = 0 to partition.Length - 1 do
-                            if v[i] then
-                                result <- solver.Or(result, partition[i])
-
-                    result
-                | _ -> failwith "invalid set"
 
 
     /// disposable memory-pooled collection
@@ -296,17 +253,7 @@ module Common =
         member this.Clear() = this.size <- 0
 
         member this.Count = this.size
-
-        member this.Contains(item) =
-            let mutable e = this.pool.AsSpan(0, this.size).GetEnumerator()
-
-            let mutable found = false
-
-            while not found && e.MoveNext() do
-                found <- obj.ReferenceEquals(e.Current, item)
-
-            found
-
+        
         [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
         member this.GetEnumerator() =
             this.pool.AsSpan(0, this.size).GetEnumerator()

@@ -32,13 +32,19 @@ namespace Resharp.Runtime
         /// to be compared with == for reference equality.  The algorithms employed do not rely on this equality, but
         /// benefit from it; the more equal BDDs that are actually found to be equal, the better the algorithms will perform.
         /// </remarks>
-        private readonly Dictionary<(int ordinal, BDD? one, BDD? zero), BDD> _bddCache = new();
+        private readonly Dictionary<(int ordinal, BDD? one, BDD? zero), BDD> _bddCache;
         /// <summary>Cache of Boolean operations over BDDs and the BDDs they produce.</summary>
         /// <remarks>
         /// This cache is necessary for the recursive operation algorithms to be guaranteed linear time.
         /// A well-crafted character class could otherwise cause execution time to be exponential.
         /// </remarks>
-        private readonly Dictionary<(int op, BDD a, BDD? b), BDD> _operationCache = new(); // op is BooleanOperation; using int to reuse generic instantiation with _bddCache
+        private readonly Dictionary<(int op, BDD a, BDD? b), BDD> _operationCache; // op is BooleanOperation; using int to reuse generic instantiation with _bddCache
+
+        public CharSetSolver(int initialCapacity = 0)
+        {
+            _bddCache = new(initialCapacity);
+            _operationCache = new(initialCapacity);
+        }
 
         /// <summary>Gets a BDD that contains every non-ASCII character.</summary>
         public BDD NonAscii =>
@@ -136,9 +142,10 @@ namespace Resharp.Runtime
 
             return RegexCharClass.DescribeSet(rcc.ToStringClass());
         }
-#if DEBUG
         /// <summary>Identity function for <paramref name="set"/>, since <paramref name="set"/> is already a <see cref="BDD"/>.</summary>
         public BDD ConvertToBDD(BDD set, CharSetSolver _) => set;
+
+#if DEBUG
 
         /// <summary>Creates a BDD that contains all of the characters in each range.</summary>
         internal BDD CreateBDDFromRanges(List<(char Lower, char Upper)> ranges)
@@ -426,6 +433,18 @@ namespace Resharp.Runtime
         {
             ref BDD? bdd = ref CollectionsMarshal.GetValueRefOrAddDefault(_bddCache, (ordinal, one, zero), out _);
             return bdd ??= new BDD(ordinal, one, zero);
+        }
+
+        /// <summary>
+        /// Clears the BDD and operation caches. Call after compilation is complete
+        /// to release memory that is only needed during pattern construction.
+        /// </summary>
+        internal void ClearCaches()
+        {
+            _bddCache.Clear();
+            _bddCache.TrimExcess();
+            _operationCache.Clear();
+            _operationCache.TrimExcess();
         }
 
         /// <summary>Kinds of Boolean operations.</summary>

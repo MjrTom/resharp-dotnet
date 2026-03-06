@@ -17,20 +17,30 @@ module Node =
         (nodeId: RegexNodeId)
         : int voption =
         match resolve nodeId with
-        | Concat(head, tail) ->
+        | Concat nodes ->
+            let head = nodes[0]
+            let tail = nodes[1]
             match getCached cache head, getCached cache tail with
             | ValueSome h, ValueSome t -> ValueSome(h + t)
             | _ -> ValueNone
         | Or(nodes) ->
-            let lengths = nodes |> map (getCached cache)
-            let allSome = lengths |> forall is_some
-            if allSome then lengths |> Array.minBy value else ValueNone
+            let mutable best = ValueSome Int32.MaxValue
+            for n in nodes do
+                match getCached cache n with
+                | ValueSome v -> if best.IsSome then best <- ValueSome(min best.Value v)
+                | ValueNone -> best <- ValueNone
+            if best.IsSome && best.Value = Int32.MaxValue then ValueNone else best
         | And(nodes) ->
-            let lengths = nodes |> map (getCached cache)
-            let allSome = lengths |> forall is_some
-            if allSome then lengths |> Array.maxBy value else ValueNone
+            let mutable best = ValueSome 0
+            for n in nodes do
+                match getCached cache n with
+                | ValueSome v -> if best.IsSome then best <- ValueSome(max best.Value v)
+                | ValueNone -> best <- ValueNone
+            best
         | Singleton _ -> ValueSome 1
-        | Loop(node = body; field2 = low) ->
+        | Loop nodes ->
+            let body = nodes[0]
+            let low = nodes[1]
             match resolve body with
             | Singleton _ -> ValueSome low
             | _ -> ValueNone
@@ -45,20 +55,30 @@ module Node =
         (nodeId: RegexNodeId)
         : int voption =
         match resolve nodeId with
-        | Concat(head, tail) ->
+        | Concat nodes ->
+            let head = nodes[0]
+            let tail = nodes[1]
             match getCached cache head, getCached cache tail with
             | ValueSome h, ValueSome t -> ValueSome(h + t)
             | _ -> ValueNone
         | Or(nodes) ->
-            let lengths = nodes |> map (getCached cache)
-            let allSome = lengths |> forall is_some
-            if allSome then lengths |> Array.maxBy value else ValueNone
+            let mutable best = ValueSome 0
+            for n in nodes do
+                match getCached cache n with
+                | ValueSome v -> if best.IsSome then best <- ValueSome(max best.Value v)
+                | ValueNone -> best <- ValueNone
+            best
         | And(nodes) ->
-            let lengths = nodes |> map (getCached cache)
-            let allSome = lengths |> forall is_some
-            if allSome then lengths |> Array.minBy value else ValueNone
+            let mutable best = ValueSome Int32.MaxValue
+            for n in nodes do
+                match getCached cache n with
+                | ValueSome v -> if best.IsSome then best <- ValueSome(min best.Value v)
+                | ValueNone -> best <- ValueNone
+            if best.IsSome && best.Value = Int32.MaxValue then ValueNone else best
         | Singleton _ -> ValueSome 1
-        | Loop(node = body; up = up) ->
+        | Loop nodes ->
+            let body = nodes[0]
+            let up = nodes[2]
             match resolve body with
             | Singleton _ -> if up = Int32.MaxValue then ValueNone else ValueSome up
             | _ -> ValueNone

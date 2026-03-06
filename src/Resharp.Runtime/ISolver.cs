@@ -39,12 +39,12 @@ namespace Resharp.Runtime
         /// <summary>Gets whether the set contains every element.</summary>
         bool IsFull(TSet set);
 
+        /// <summary>Converts the set into a <see cref="BDD"/> representation.</summary>
+        BDD ConvertToBDD(TSet set, CharSetSolver solver);
+
 #if DEBUG
         /// <summary>Formats the contents of the specified set for human consumption.</summary>
         string PrettyPrint(TSet set, CharSetSolver solver);
-
-        /// <summary>Converts the set into a <see cref="BDD"/> representation.</summary>
-        BDD ConvertToBDD(TSet set, CharSetSolver solver);
 #endif
     }
 }

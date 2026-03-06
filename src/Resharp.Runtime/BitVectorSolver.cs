@@ -69,10 +69,6 @@ namespace Resharp.Runtime
 
         public BitVector[] GetMinterms() => _mintermVectors;
 
-#if DEBUG
-        /// <summary>Pretty print the bitvector bv as the character set it represents.</summary>
-        public string PrettyPrint(BitVector bv, CharSetSolver solver) => solver.PrettyPrint(ConvertToBDD(bv, solver));
-
         public BDD ConvertToBDD(BitVector set, CharSetSolver solver)
         {
             BDD[] partition = _minterms;
@@ -93,6 +89,10 @@ namespace Resharp.Runtime
 
             return result;
         }
+
+#if DEBUG
+        /// <summary>Pretty print the bitvector bv as the character set it represents.</summary>
+        public string PrettyPrint(BitVector bv, CharSetSolver solver) => solver.PrettyPrint(ConvertToBDD(bv, solver));
 #endif
     }
 }

@@ -6,37 +6,44 @@ open System
 open Resharp.Runtime
 
 [<return: Struct>]
-let (|PredStar|_|) (resolve: RegexNodeId -> RegexNode<_>) (nodeId: RegexNodeId) =
+let (|PredStar|_|) (getTset: int -> 'tset) (resolve: RegexNodeId -> RegexNode<'tset>) (nodeId: RegexNodeId) =
     match resolve nodeId with
-    | Loop(node = body; field2 = 0; up = Int32.MaxValue) ->
+    | Loop nodes when nodes[1] = 0 && nodes[2] = Int32.MaxValue ->
+        let body = nodes[0]
         match resolve body with
-        | Singleton pred -> ValueSome(pred)
+        | Singleton nodes -> ValueSome(getTset nodes[0])
         | _ -> ValueNone
     | _ -> ValueNone
 
 
 
 [<return: Struct>]
-let (|PredLoop|_|) (resolve: RegexNodeId -> RegexNode<_>) (nodeId: RegexNodeId) =
+let (|PredLoop|_|) (getTset: int -> 'tset) (resolve: RegexNodeId -> RegexNode<'tset>) (nodeId: RegexNodeId) =
     match resolve nodeId with
-    | Loop(node = body; field2 = low; up = up) ->
+    | Loop nodes ->
+        let body = nodes[0]
+        let low = nodes[1]
+        let up = nodes[2]
         match resolve body with
-        | Singleton pred -> ValueSome(pred, low, up)
+        | Singleton nodes -> ValueSome(getTset nodes[0], low, up)
         | _ -> ValueNone
     | _ -> ValueNone
 
 [<return: Struct>]
-let (|PredStarHead|_|) (resolve: RegexNodeId -> RegexNode<_>) (nodeId: RegexNodeId) =
+let (|PredStarHead|_|) (getTset: int -> 'tset) (resolve: RegexNodeId -> RegexNode<'tset>) (nodeId: RegexNodeId) =
     match resolve nodeId with
-    | Loop(node = body; field2 = 0; up = Int32.MaxValue) ->
+    | Loop nodes when nodes[1] = 0 && nodes[2] = Int32.MaxValue ->
+        let body = nodes[0]
         match resolve body with
-        | Singleton pred -> ValueSome(pred)
+        | Singleton nodes -> ValueSome(getTset nodes[0])
         | _ -> ValueNone
-    | Concat(node = head) ->
+    | Concat nodes ->
+        let head = nodes[0]
         match resolve head with
-        | Loop(node = body; field2 = 0; up = Int32.MaxValue) ->
+        | Loop nodes when nodes[1] = 0 && nodes[2] = Int32.MaxValue ->
+            let body = nodes[0]
             match resolve body with
-            | Singleton pred -> ValueSome(pred)
+            | Singleton nodes -> ValueSome(getTset nodes[0])
             | _ -> ValueNone
         | _ -> ValueNone
     | _ -> ValueNone
@@ -45,7 +52,8 @@ let (|PredStarHead|_|) (resolve: RegexNodeId -> RegexNode<_>) (nodeId: RegexNode
 let (|LookbackPrefix|_|) (resolve: RegexNodeId -> RegexNode<_>) (nodeId: RegexNodeId) =
     match resolve nodeId with
     | LookBehind _ -> ValueSome(nodeId)
-    | Concat(node = head) ->
+    | Concat nodes ->
+        let head = nodes[0]
         match resolve head with
         | LookBehind _ -> ValueSome(nodeId)
         | _ -> ValueNone
@@ -72,7 +80,7 @@ let (|HasSuffixLookahead|_|) (getFlags: RegexNodeId -> NodeFlags) (nodeId: Regex
 let (|ConcatSuffix|) (resolve: RegexNodeId -> RegexNode<_>) (nodeId: RegexNodeId) =
     let rec loop id =
         match resolve id with
-        | Concat(node = _; field2 = tail) -> loop tail
+        | Concat nodes -> loop nodes[1]
         | _ -> id
     loop nodeId
 
@@ -82,7 +90,9 @@ let inline (|SplitTail|) (resolve: RegexNodeId -> RegexNode<_>) (nodeId: RegexNo
 
     let rec loop id =
         match resolve id with
-        | Concat(node = h; field2 = tail) ->
+        | Concat nodes ->
+            let h = nodes[0]
+            let tail = nodes[1]
             tmp.Add(h)
             loop tail
         | _ -> tmp, id
@@ -91,38 +101,44 @@ let inline (|SplitTail|) (resolve: RegexNodeId -> RegexNode<_>) (nodeId: RegexNo
 
 
 [<return: Struct>]
-let (|StartsWithTrueStar|_|) (resolve: RegexNodeId -> RegexNode<_>) (solver: ISolver<_>) (nodeId: RegexNodeId) =
+let (|StartsWithTrueStar|_|) (getTset: int -> 'tset) (resolve: RegexNodeId -> RegexNode<'tset>) (solver: ISolver<'tset>) (nodeId: RegexNodeId) =
     let rec loop id =
         match resolve id with
-        | Concat(node = head) ->
+        | Concat nodes ->
+            let head = nodes[0]
             match resolve head with
-            | Loop(node = body; field2 = 0; up = Int32.MaxValue) ->
+            | Loop nodes when nodes[1] = 0 && nodes[2] = Int32.MaxValue ->
+                let body = nodes[0]
                 match resolve body with
-                | Singleton pred when solver.IsFull(pred) -> ValueSome()
+                | Singleton nodes when solver.IsFull(getTset nodes[0]) -> ValueSome()
                 | _ -> ValueNone
             | _ -> ValueNone
-        | Loop(node = body; field2 = 0; up = Int32.MaxValue) ->
+        | Loop nodes when nodes[1] = 0 && nodes[2] = Int32.MaxValue ->
+            let body = nodes[0]
             match resolve body with
-            | Singleton pred when solver.IsFull(pred) -> ValueSome()
+            | Singleton nodes when solver.IsFull(getTset nodes[0]) -> ValueSome()
             | _ -> ValueNone
         | _ -> ValueNone
 
     loop nodeId
 
 [<return: Struct>]
-let (|EndsWithTrueStar|_|) (resolve: RegexNodeId -> RegexNode<_>) (solver: ISolver<_>) (nodeId: RegexNodeId) =
+let (|EndsWithTrueStar|_|) (getTset: int -> 'tset) (resolve: RegexNodeId -> RegexNode<'tset>) (solver: ISolver<'tset>) (nodeId: RegexNodeId) =
     let rec loop id =
         match resolve id with
-        | Concat(node = _; field2 = tail) ->
+        | Concat nodes ->
+            let tail = nodes[1]
             match resolve tail with
-            | Loop(node = body; field2 = 0; up = Int32.MaxValue) ->
+            | Loop nodes when nodes[1] = 0 && nodes[2] = Int32.MaxValue ->
+                let body = nodes[0]
                 match resolve body with
-                | Singleton pred when solver.IsFull(pred) -> ValueSome()
+                | Singleton nodes when solver.IsFull(getTset nodes[0]) -> ValueSome()
                 | _ -> ValueNone
             | _ -> loop tail
-        | Loop(node = body; field2 = 0; up = Int32.MaxValue) ->
+        | Loop nodes when nodes[1] = 0 && nodes[2] = Int32.MaxValue ->
+            let body = nodes[0]
             match resolve body with
-            | Singleton pred when solver.IsFull(pred) -> ValueSome()
+            | Singleton nodes when solver.IsFull(getTset nodes[0]) -> ValueSome()
             | _ -> ValueNone
         | _ -> ValueNone
 

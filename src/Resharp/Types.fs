@@ -127,11 +127,6 @@ type internal RegexNodeInfo<'tset when TSet<'tset>>() =
 
     member val NodeFlags: NodeFlags = NodeFlags.None with get, set
     member val Startset: 'tset = Unchecked.defaultof<_> with get, set
-    member val Transitions: Dictionary<'tset, RegexNodeId> = Dictionary() with get, set
-    member val EndTransitions: Dictionary<'tset, RegexNodeId> = Dictionary() with get, set
-
-    member val StartTransitions: Dictionary<'tset, RegexNodeId> = Dictionary() with get, set
-
     member val PendingNullables: RefSet = RefSet([||]) with get, set
 
     // filled in later
@@ -170,40 +165,32 @@ module RegexNodeId =
     [<Literal>]
     let BEGIN_ANCHOR = 6
 
+type RefSetId = int
+
+module RefSetId =
+    [<Literal>]
+    let Empty = 0
+
+// this form is great because F# shares `nodes` since .NET 9 and packs this into 16B
+// (https://learn.microsoft.com/en-us/dotnet/fsharp/whats-new/fsharp-9#field-sharing-for-struct-discriminated-unions)
 [<NoComparison; DebuggerDisplay("{ToString()}"); Struct>]
 type internal RegexNode<'tset when TSet<'tset> and 'tset: equality> =
-    /// RE.RE
-    /// the "field2" naming is a bit unfortunate but it allows us to 
-    /// reuse the same memory struct fields 
-    | Concat of node: RegexNodeId * field2: RegexNodeId 
-    /// 𝜓 predicate
-    | Singleton of set: 'tset
-    /// RE{𝑚, 𝑛}, \* = {0,int32.max}
-    /// field2 is lower bound, up is upper bound
-    | Loop of node: RegexNodeId * field2: int * up: int
+    /// RE.RE - [0]=head, [1]=tail
+    | Concat of nodes: array<RegexNodeId>
+    /// 𝜓 predicate - [0]=tsetIndex
+    | Singleton of nodes: array<RegexNodeId>
+    /// RE{𝑚, 𝑛}, \* = {0,int32.max} - [0]=body, [1]=lower, [2]=upper
+    | Loop of nodes: array<RegexNodeId>
     /// RE|RE
-    | Or of nodes: RegexNodeId[] // <- both | and & are really a set!
+    | Or of nodes: array<RegexNodeId>
     /// RE&RE
-    | And of nodes: RegexNodeId[]
-    /// ~RE
-    | Not of node: RegexNodeId
-    /// lookahead/lookbehind
-    /// in retrospect:
-    /// using a 3-tuple (lookbehind, body, lookahead)
-    /// instead of this, is much easier to work with,
-    /// since it's correct in RE# by construction
-    /// and it's trivial to apply intersection on it:
-    ///     ex. (?<=B)E(?=A) & (?<=B2)E2(?=A2) => (?<=\_\*(B&B2))(E&E2)(?=(A&A2)\_\*)
-    /// lookahead (?=...)
-    | LookAhead of
-        node: RegexNodeId *
-        field2: int * // field2: relativeTo
-        pendingNullables: RefSet
-    /// lookbehind (?<=...)
-    | LookBehind of
-        node: RegexNodeId *
-        field2: int * // field2: relativeTo
-        pendingNullables: RefSet
+    | And of nodes: array<RegexNodeId>
+    /// ~RE - [0]=inner
+    | Not of nodes: array<RegexNodeId>
+    /// lookahead (?=...) - [0]=body, [1]=relativeTo, [2]=pendingId
+    | LookAhead of nodes: array<RegexNodeId>
+    /// lookbehind (?<=...) - [0]=body, [1]=relativeTo, [2]=pendingId
+    | LookBehind of nodes: array<RegexNodeId>
     | Begin
     | End
 
@@ -328,7 +315,6 @@ type internal PooledArray<'t when 't: equality>(initialSize: int) =
         found
 
     member this.AsSpan() = pool.AsSpan(0, size)
-    member this.AsMemory() = pool.AsMemory(0, size)
     member this.AsArray() = pool.AsSpan(0, size).ToArray()
 
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
@@ -384,6 +370,7 @@ type internal RefSet =
 module internal Helpers =
     let rec printNode
         (css: CharSetSolver)
+        (getTset: int -> BDD)
         (resolve: RegexNodeId -> RegexNode<BDD>)
         (id: RegexNodeId)
         =
@@ -401,23 +388,23 @@ module internal Helpers =
                 BDD.prettyPrintBDD css bdd
 
         let paren str = $"({str})"
-        let print = printNode css resolve
+        let print = printNode css getTset resolve
 
         match resolve id with
-        | Singleton v -> printSet v
+        | Singleton nodes -> printSet (getTset nodes[0])
         | Or(items) ->
-            let setItems: string list = items |> Seq.map print |> Seq.toList
-
-            let combinedList = setItems
-            combinedList |> String.concat "|" |> paren
+            let setItems = items |> Array.map print
+            setItems |> String.concat "|" |> paren
         | And(items) ->
-            let setItems: string list = items |> Seq.map print |> Seq.toList
-
+            let setItems = items |> Array.map print
             setItems |> String.concat "&" |> paren
-        | Not(inner) ->
-            let inner = print inner
+        | Not nodes ->
+            let inner = print nodes[0]
             $"~({inner})"
-        | Loop(body, lower, upper) ->
+        | Loop nodes ->
+            let body = nodes[0]
+            let lower = nodes[1]
+            let upper = nodes[2]
             let inner = print body
 
             let inner =
@@ -439,42 +426,46 @@ module internal Helpers =
 
                 inner + loopCount
 
-        | LookAhead(body, _, pending) ->
+        | LookAhead nodes ->
+            let body = nodes[0]
+            let pending = nodes[2]
             let inner =
                 match print body with
                 | s when s.EndsWith "_*" -> s.Substring(0, s.Length - 2)
                 | s when s.StartsWith "_*" -> s.Substring(2)
                 | s -> s
 
-            let pending = if pending.IsEmpty then "" else "{...}"
+            let pending = if pending = RefSetId.Empty then "" else "{...}"
             let result = $"(?={inner})" + pending
 
             match result with
             | @"(?=(\n|\z))"
             | @"(?=(\z|\n))" -> "$"
             | _ -> result
-        | LookBehind(body, _, pending) ->
+        | LookBehind nodes ->
+            let body = nodes[0]
+            let pending = nodes[2]
             let inner =
                 match print body with
                 | s when s.EndsWith "_*" -> s.Substring(0, s.Length - 2)
                 | s when s.StartsWith "_*" -> s.Substring(2)
                 | s -> s
 
-            let pending = if pending.IsEmpty then "" else "{...}"
+            let pending = if pending = RefSetId.Empty then "" else "{...}"
             let result = $"(?<={inner})" + pending
 
             match result with
             | @"(?<=(\n|\A))"
             | @"(?<=(\A|\n))" -> "^"
             | _ -> result
-        | Concat(node = h; field2 = t) -> $"{print h}{print t}"
+        | Concat nodes -> $"{print nodes[0]}{print nodes[1]}"
         | End -> @"\z"
         | Begin -> @"\A"
 
 module internal Solver =
     let containsSet (solver: ISolver<'d>) (larger: 'd) (smaller: 'd) : bool =
         let overlapped = solver.And(smaller, larger)
-        obj.ReferenceEquals((box smaller), (box overlapped)) || smaller = overlapped
+        EqualityComparer<'d>.Default.Equals(smaller, overlapped)
 
     let starSubsumes (solver: ISolver<'d>) (pstar: 'd) (subsumedByMinterm: 'd) : bool =
         Solver.containsSet solver pstar subsumedByMinterm

@@ -13,7 +13,7 @@ open Resharp.Runtime
 
 [<Fact>]
 let ``node size`` () = 
-    Assert.Equal(40, sizeof<RegexNode<uint64>>)
+    Assert.Equal(16, sizeof<RegexNode<uint64>>)
 
 module internal Helpers =
     let charSetSolver = CharSetSolver()
@@ -29,9 +29,13 @@ let assertSolverContains12 pattern =
     let b = reg.TSetMatcher.Cache.Builder
 
     match b.Node(reg.TSetMatcher.RawPattern) with
-    | Concat(node = h; field2 = t) ->
+    | Concat nodes ->
+        let h = nodes[0]
+        let t = nodes[1]
         match b.Node(h), b.Node(t) with
-        | Singleton head, Singleton tail ->
+        | Singleton nodes1, Singleton nodes2 ->
+            let head = b.GetTSet(nodes1[0])
+            let tail = b.GetTSet(nodes2[0])
             assertTrue (Solver.containsSet reg.TSetMatcher.Cache.Solver head tail)
         | _ -> failwith "_"
     | _ -> failwith "_"
@@ -42,9 +46,13 @@ let assertNotSolverContains12 pattern =
     let b = reg.TSetMatcher.Cache.Builder
 
     match b.Node(reg.TSetMatcher.RawPattern) with
-    | Concat(node = h; field2 = t) ->
+    | Concat nodes ->
+        let h = nodes[0]
+        let t = nodes[1]
         match b.Node(h), b.Node(t) with
-        | Singleton head, Singleton tail ->
+        | Singleton nodes1, Singleton nodes2 ->
+            let head = b.GetTSet(nodes1[0])
+            let tail = b.GetTSet(nodes2[0])
             assertFalse (Solver.containsSet reg.TSetMatcher.Cache.Solver head tail)
         | _ -> failwith "_"
     | _ -> failwith "_"
@@ -222,7 +230,7 @@ let ``identity singleton 1`` () =
 
             let loop =
                 match b.Node(conc) with
-                | Concat(regexNode, _) -> regexNode
+                | Concat nodes -> nodes[0]
                 | _ -> failwith "debug"
 
             loop
@@ -241,7 +249,7 @@ let ``identity singleton 1`` () =
 
             let loop =
                 match b.Node(conc) with
-                | Concat(_, tail) -> tail
+                | Concat nodes -> nodes[1]
                 | _ -> failwith "debug"
 
             loop

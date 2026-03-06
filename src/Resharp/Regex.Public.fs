@@ -47,9 +47,9 @@ type Regex
                 CultureInfo.InvariantCulture
             )
 
-        let charsetSolver = CharSetSolver()
+        let charsetSolver = CharSetSolver(if pattern.Length > 150 then pattern.Length * 2 else 0)
         let converter = ResharpRegexNodeConverter(charsetSolver)
-        let regexBuilder = RegexBuilder(converter, charsetSolver, charsetSolver, options)
+        let regexBuilder = RegexBuilder(converter, charsetSolver, charsetSolver, options, patternLength = pattern.Length)
 
         let symbolicBddnode: RegexNodeId =
             RegexNodeConverter.convertToSymbolicRegexNode (
@@ -60,14 +60,18 @@ type Regex
 
         let minterms = Minterms.compute charsetSolver regexBuilder symbolicBddnode
 
-        Helpers.createMatcher (
-            regexBuilder,
-            minterms,
-            charsetSolver,
-            converter,
-            symbolicBddnode,
-            options
-        )
+        let m =
+            Helpers.createMatcher (
+                regexBuilder,
+                minterms,
+                charsetSolver,
+                converter,
+                symbolicBddnode,
+                options
+            )
+
+        regexBuilder.ClearBuildCaches()
+        m
 
 
     /// <summary>Counts the number of non-overlapping matches in the input.</summary>

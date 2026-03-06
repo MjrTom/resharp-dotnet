@@ -17,20 +17,27 @@ module RegexNode =
         match builder.Node(nodeId) with
         | Singleton _ -> nodeId
         | Or(nodes = xs) ->
-            let xs' = xs |> map (rev builder)
-            let mem = xs'.AsMemory()
-            builder.mkOr &mem
-        | Loop(xs, low, up) ->
-            let xs' = rev builder xs
-            builder.mkLoop (xs', low, up)
+            use mutable vl = new ValueList<RegexNodeId>(xs.Length)
+            for x in xs do vl.Add(rev builder x)
+            let mem = vl.ToArray()
+            builder.mkOr mem
+        | Loop nodes ->
+            let body = nodes[0]
+            let low = nodes[1]
+            let up = nodes[2]
+            let body' = rev builder body
+            builder.mkLoop (body', low, up)
         | And(nodes = xs) ->
-            let xs' = xs |> map (rev builder)
-            let mem = xs'.AsMemory()
-            builder.mkAnd &mem
-        | Not(xs) ->
-            let xs' = rev builder xs
-            builder.mkNot xs'
-        | LookAhead(node = node') ->
+            use mutable vl = new ValueList<RegexNodeId>(xs.Length)
+            for x in xs do vl.Add(rev builder x)
+            let mem = vl.ToArray()
+            builder.mkAnd mem
+        | Not nodes ->
+            let inner = nodes[0]
+            let inner' = rev builder inner
+            builder.mkNot inner'
+        | LookAhead nodes ->
+            let node' = nodes[0]
             match builder.Node(node') with
             | _ ->
                 let (SplitTail resolve (heads, tail)) = node'
@@ -42,9 +49,12 @@ module RegexNode =
                 | _ ->
                     let revBody = rev builder node'
                     builder.mkLookaround (revBody, true, 0, builder.emptyRefSet)
-        | LookBehind(node = node') ->
+        | LookBehind nodes ->
+            let node' = nodes[0]
             match builder.Node(node') with
-            | Concat(node = head; field2 = tail) ->
+            | Concat cnodes ->
+                let head = cnodes[0]
+                let tail = cnodes[1]
                 match head = RegexNodeId.TOP_STAR with
                 | true ->
                     let revBody = rev builder tail
@@ -60,9 +70,9 @@ module RegexNode =
             let mutable curr = nodeId
 
             while (match builder.Node(curr) with
-                   | Concat(head, tail) ->
-                       acc.Add(rev builder head)
-                       curr <- tail
+                   | Concat nodes ->
+                       acc.Add(rev builder nodes[0])
+                       curr <- nodes[1]
                        true
                    | _ ->
                        acc.Add(rev builder curr)
@@ -86,12 +96,20 @@ module RegexNode =
         else
             match b.Node(nodeId) with
             | Singleton _ -> false
-            | Or(xs) -> xs |> exists (fun v -> isNullable (b, loc, v))
-            | And(xs) -> xs |> forall (fun v -> isNullable (b, loc, v))
-            | Loop(node = r; field2 = low) -> low = 0 || (isNullable (b, loc, r))
-            | Not(inner) -> not (isNullable (b, loc, inner))
-            | Concat(head, tail) -> isNullable (b, loc, head) && isNullable (b, loc, tail)
-            | LookAhead(node = body) | LookBehind(node = body) -> isNullable (b, loc, body)
+            | Or(xs) ->
+                let mutable found = false
+                for v in xs do
+                    if not found then found <- isNullable (b, loc, v)
+                found
+            | And(xs) ->
+                let mutable all = true
+                for v in xs do
+                    if all then all <- isNullable (b, loc, v)
+                all
+            | Loop nodes -> nodes[1] = 0 || (isNullable (b, loc, nodes[0]))
+            | Not nodes -> not (isNullable (b, loc, nodes[0]))
+            | Concat nodes -> isNullable (b, loc, nodes[0]) && isNullable (b, loc, nodes[1])
+            | LookAhead nodes | LookBehind nodes -> isNullable (b, loc, nodes[0])
             | End -> loc = LocationKind.End
             | Begin -> loc = LocationKind.Begin
 
@@ -104,23 +122,29 @@ module RegexNode =
         let transitions =
             match loc with
             | LocationKind.Begin when nodeInfo.NodeFlags.DependsOnAnchor ->
-                nodeInfo.StartTransitions
+                b.StartTransitions
             | LocationKind.End when nodeInfo.NodeFlags.DependsOnAnchor ->
-                nodeInfo.EndTransitions
-            | _ -> nodeInfo.Transitions
+                b.EndTransitions
+            | _ -> b.Transitions
+
+        let key = struct(nodeId, loc_pred)
 
         let result =
-            match transitions.TryGetValue(loc_pred) with
+            match transitions.TryGetValue(key) with
             | true, inf -> inf
             | _ ->
 
                 match b.Node(nodeId) with
-                | Singleton pred ->
+                | Singleton nodes ->
+                    let pred = b.GetTSet(nodes[0])
                     if b.Solver.elemOfSet pred loc_pred then
                         RegexNodeId.EPS
                     else
                         RegexNodeId.BOT
-                | Loop(r, low, up) ->
+                | Loop nodes ->
+                    let r = nodes[0]
+                    let low = nodes[1]
+                    let up = nodes[2]
                     let inline decr x =
                         if x = Int32.MaxValue || x = 0 then x else x - 1
 
@@ -141,8 +165,8 @@ module RegexNode =
                     | 1 -> derivatives.AsSpan()[0]
                     | _ ->
                         derivatives.AsSpan().Sort()
-                        let mem = derivatives.AsMemory()
-                        b.mkOr (&mem)
+                        let mem = derivatives.ToArray()
+                        b.mkOr (mem)
 
 
                 | And(nodes) ->
@@ -159,12 +183,14 @@ module RegexNode =
                     | 1 -> derivatives.AsSpan()[0]
                     | _ ->
                         derivatives.AsSpan().Sort()
-                        let mem = derivatives.AsMemory()
-                        let res = b.mkAnd (&mem)
+                        let mem = derivatives.ToArray()
+                        let res = b.mkAnd (mem)
                         res
 
-                | Not(inner) -> b.mkNot (derivative (b, loc, loc_pred, inner))
-                | Concat(head, tail) ->
+                | Not nodes -> b.mkNot (derivative (b, loc, loc_pred, nodes[0]))
+                | Concat nodes ->
+                    let head = nodes[0]
+                    let tail = nodes[1]
                     let R' = derivative (b, loc, loc_pred, head)
                     let R'S = b.mkConcat2 (R', tail)
 
@@ -177,30 +203,32 @@ module RegexNode =
                     else
                         R'S
                 // Lookahead
-                | LookAhead(
-                    node = r
-                    field2 = rel
-                    pendingNullables = pendingNulls) ->
+                | LookAhead nodes ->
+                    let r = nodes[0]
+                    let rel = nodes[1]
+                    let pendingNulls = nodes[2]
                     let der_R = derivative (b, loc, loc_pred, r)
 
                     match der_R with
                     // start a new pending match
-                    | _ when pendingNulls.IsEmpty ->
+                    | _ when pendingNulls = RefSetId.Empty ->
                         match RegexNode.isNullable (b, loc, der_R) with
                         // initialize the first relative nullable position
                         | true -> b.mkLookaround (der_R, false, rel + 1, b.zeroListRefSet)
                         | false ->
                             match b.Node(der_R) with
-                            | Concat(node = ch; field2 = ct) ->
+                            | Concat cnodes ->
+                                let ch = cnodes[0]
+                                let ct = cnodes[1]
                                 match ch = RegexNodeId.TOP_STAR with
                                 | true ->
                                     match b.Node(ct) with
-                                    | Concat(node = cth; field2 = ctt) when
-                                        (match b.Node(cth) with
+                                    | Concat cnodes2 when
+                                        (match b.Node(cnodes2[0]) with
                                          | Begin
                                          | End -> true
                                          | _ -> false)
-                                        && (ctt = RegexNodeId.TOP_STAR)
+                                        && (cnodes2[1] = RegexNodeId.TOP_STAR)
                                         ->
                                         b.mkLookaround (
                                             RegexNodeId.EPS,
@@ -226,12 +254,14 @@ module RegexNode =
                                 | _ -> b.mkLookaround (der_R, false, rel + 1, b.zeroListRefSet)
                             | _ -> b.mkLookaround (der_R, false, rel + 1, b.zeroListRefSet)
 
-                    | _ -> b.mkLookaround (der_R, false, rel + 1, pendingNulls)
+                    | _ -> b.mkLookaround (der_R, false, rel + 1, b.ResolveRefSet(pendingNulls))
                 // Lookback
-                | LookBehind(node = r) ->
+                | LookBehind nodes ->
+                    let r = nodes[0]
                     match b.Node(r) with
-                    | Concat(node = head; field2 = tail) ->
-
+                    | Concat cnodes ->
+                        let head = cnodes[0]
+                        let tail = cnodes[1]
                         b.mkLookaround (
                             derivative (
                                 b,
@@ -255,7 +285,7 @@ module RegexNode =
                 | Begin
                 | End -> RegexNodeId.BOT
 
-        transitions.TryAdd(loc_pred, result) |> ignore
+        transitions.TryAdd(key, result) |> ignore
         result
 
 

@@ -89,10 +89,6 @@ namespace Resharp.Runtime
             return minterms;
         }
 
-#if DEBUG
-        /// <summary>Pretty print the bitvector bv as the character set it represents.</summary>
-        public string PrettyPrint(ulong bv, CharSetSolver solver) => solver.PrettyPrint(ConvertToBDD(bv, solver));
-
         public BDD ConvertToBDD(ulong set, CharSetSolver solver)
         {
             BDD[] partition = _minterms;
@@ -113,6 +109,10 @@ namespace Resharp.Runtime
 
             return result;
         }
+
+#if DEBUG
+        /// <summary>Pretty print the bitvector bv as the character set it represents.</summary>
+        public string PrettyPrint(ulong bv, CharSetSolver solver) => solver.PrettyPrint(ConvertToBDD(bv, solver));
 #endif
     }
 }

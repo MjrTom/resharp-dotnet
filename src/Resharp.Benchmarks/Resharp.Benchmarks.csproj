@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <!-- benchmarkdotnet does not honor this -->
-  <!-- <ItemGroup Condition="'$(BuildSourceGen)' != 'true'">
+  <!-- <ItemGroup>
     <Compile Remove="SourceGenRegexes.g.cs" />
   </ItemGroup> -->
 

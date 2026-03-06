@@ -18,13 +18,15 @@ let rewriteNegativeLookaround
     (node: RegexNodeId)
     : RegexNodeId =
     match lookBack, b.Node(node) with
-    | false, Singleton pred ->
+    | false, Singleton nodes ->
         // (?!\w) = (?=\z|\W)
+        let pred = b.GetTSet(nodes[0])
         let flipped = b.one (b.Solver.Not(pred))
         let conc = b.mkOr2 (flipped, b.anchors._zAnchor)
         b.mkLookaround (conc, false, 0, b.emptyRefSet)
-    | true, Singleton pred ->
+    | true, Singleton nodes ->
         // (?<!\w) = (?<=\A|\W)
+        let pred = b.GetTSet(nodes[0])
         let flipped = b.one (b.Solver.Not(pred))
         let conc = b.mkOr2 (b.anchors._bigAAnchor, flipped)
         b.mkLookaround (conc, true, 0, b.emptyRefSet)
@@ -74,7 +76,6 @@ let rec determineWordBorderNodeKind
             if isNull ranges then
                 Unknown
             else
-                // let bdd = css.CreateBDDFromRanges(ranges)
                 let bdd = BDD.fromRanges css ranges
 
                 let sbdd = b.bddFromClass RegexCharClass.SpaceClass

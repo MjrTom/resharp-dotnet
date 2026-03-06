@@ -17,31 +17,47 @@ let rec transform
 
     let inline transformInner v = transform oldBuilder builder charsetSolver newSolver v
     match oldBuilder.Node(nodeId) with
-    | Singleton tset -> builder.one(newSolver.ConvertFromBDD(tset, charsetSolver))
-    | Not(xs) -> builder.mkNot(transformInner xs)
+    | Singleton nodes -> builder.one(newSolver.ConvertFromBDD(oldBuilder.GetTSet(nodes[0]), charsetSolver))
+    | Not nodes ->
+        let xs = nodes[0]
+        builder.mkNot(transformInner xs)
     | And (xs) ->
-        let xs' = xs |> Array.map transformInner
-        builder.mkAndSeq(xs')
+        use mutable vl = new ValueList<RegexNodeId>(xs.Length)
+        for x in xs do vl.Add(transformInner x)
+        vl.AsSpan().Sort()
+        let mem = vl.ToArray()
+        builder.mkAnd(mem)
     | Or (xs) ->
-        let xs' = xs |> Array.map transformInner
-        builder.mkOrSeq(xs')
-    | Loop (xs, lower, upper) ->
-        let xs' = transformInner xs
-        builder.mkLoop(xs',lower,upper)
-    | LookAhead (body, rel, pendingNullable) ->
+        use mutable vl = new ValueList<RegexNodeId>(xs.Length)
+        for x in xs do vl.Add(transformInner x)
+        vl.AsSpan().Sort()
+        let mem = vl.ToArray()
+        builder.mkOr(mem)
+    | Loop nodes ->
+        let body = transformInner nodes[0]
+        let lower = nodes[1]
+        let upper = nodes[2]
+        builder.mkLoop(body,lower,upper)
+    | LookAhead nodes ->
         if nodeId = oldBuilder.anchors._nonWordRight.Value then
             builder.anchors._nonWordRight.Value
         else
-            builder.mkLookaround(transformInner body,false,rel,pendingNullable)
-    | LookBehind (body, rel, pendingNullable) ->
+            let body = nodes[0]
+            let rel = nodes[1]
+            let pendingNullable = nodes[2]
+            builder.mkLookaround(transformInner body,false,rel,oldBuilder.ResolveRefSet(pendingNullable))
+    | LookBehind nodes ->
         if nodeId = oldBuilder.anchors._nonWordLeft.Value then
             builder.anchors._nonWordLeft.Value
         else
-            builder.mkLookaround(transformInner body,true,rel,pendingNullable)
-    | Concat(head,tail) ->
-        let head' = transformInner head
-        let tail' = transformInner tail
-        builder.mkConcat2(head',tail')
+            let body = nodes[0]
+            let rel = nodes[1]
+            let pendingNullable = nodes[2]
+            builder.mkLookaround(transformInner body,true,rel,oldBuilder.ResolveRefSet(pendingNullable))
+    | Concat nodes ->
+        let head = transformInner nodes[0]
+        let tail = transformInner nodes[1]
+        builder.mkConcat2(head,tail)
     | Begin -> RegexNodeId.BEGIN_ANCHOR
     | End -> RegexNodeId.END_ANCHOR
 
@@ -59,27 +75,43 @@ let rec transformBack
 
     let inline transformInner v = transformBack bdds oldBuilder builder newSolver charsetSolver v
     match oldBuilder.Node(nodeId) with
-    | Singleton tset ->
-        let bdd : BDD = newSolver.convertToBdd(charsetSolver, bdds, tset)
+    | Singleton nodes ->
+        let bdd : BDD = newSolver.ConvertToBDD(oldBuilder.GetTSet(nodes[0]), charsetSolver)
         builder.one(bdd)
-    | Not(xs) -> builder.mkNot(transformInner xs)
+    | Not nodes ->
+        let xs = nodes[0]
+        builder.mkNot(transformInner xs)
     | And (xs) ->
-        let xs' = xs |> Array.map transformInner
-        builder.mkAndSeq(xs')
+        use mutable vl = new ValueList<RegexNodeId>(xs.Length)
+        for x in xs do vl.Add(transformInner x)
+        vl.AsSpan().Sort()
+        let mem = vl.ToArray()
+        builder.mkAnd(mem)
     | Or (xs) ->
-        let xs' = xs |> Array.map transformInner
-        builder.mkOrSeq(xs')
-    | Loop (xs, lower, upper) ->
-        let xs' = transformInner xs
-        builder.mkLoop(xs',lower,upper)
-    | LookAhead (body, rel, pendingNullable) ->
-        builder.mkLookaround(transformInner body,false,rel,pendingNullable)
-    | LookBehind (body, rel, pendingNullable) ->
-        builder.mkLookaround(transformInner body,true,rel,pendingNullable)
-    | Concat(head,tail) ->
-        let head' = transformInner head
-        let tail' = transformInner tail
-        builder.mkConcat2(head',tail')
+        use mutable vl = new ValueList<RegexNodeId>(xs.Length)
+        for x in xs do vl.Add(transformInner x)
+        vl.AsSpan().Sort()
+        let mem = vl.ToArray()
+        builder.mkOr(mem)
+    | Loop nodes ->
+        let body = transformInner nodes[0]
+        let lower = nodes[1]
+        let upper = nodes[2]
+        builder.mkLoop(body,lower,upper)
+    | LookAhead nodes ->
+        let body = nodes[0]
+        let rel = nodes[1]
+        let pendingNullable = nodes[2]
+        builder.mkLookaround(transformInner body,false,rel,oldBuilder.ResolveRefSet(pendingNullable))
+    | LookBehind nodes ->
+        let body = nodes[0]
+        let rel = nodes[1]
+        let pendingNullable = nodes[2]
+        builder.mkLookaround(transformInner body,true,rel,oldBuilder.ResolveRefSet(pendingNullable))
+    | Concat nodes ->
+        let head = transformInner nodes[0]
+        let tail = transformInner nodes[1]
+        builder.mkConcat2(head,tail)
     | Begin -> RegexNodeId.BEGIN_ANCHOR
     | End -> RegexNodeId.END_ANCHOR
 
@@ -87,16 +119,16 @@ let collectSets (builder: RegexBuilder<'tset>) (nodeId: RegexNodeId) =
     let hs = HashSet()
     let rec collect (id: RegexNodeId) : unit =
         match builder.Node(id) with
-        | Singleton pred -> hs.Add pred |> ignore
+        | Singleton nodes -> hs.Add (builder.GetTSet(nodes[0])) |> ignore
         | And (nodes=xs)
-        | Or (nodes=xs) -> xs |> iter collect
-        | LookAhead (node=node)
-        | LookBehind (node=node)
-        | Not (node=node)
-        | Loop (node=node) -> collect node
-        | Concat(head,tail) ->
-            collect head
-            collect tail
+        | Or (nodes=xs) -> for x in xs do collect x
+        | LookAhead nodes
+        | LookBehind nodes
+        | Not nodes
+        | Loop nodes -> collect nodes[0]
+        | Concat nodes ->
+            collect nodes[0]
+            collect nodes[1]
         | Begin | End -> ()
     collect nodeId
     hs
