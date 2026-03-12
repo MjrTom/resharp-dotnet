@@ -1395,7 +1395,7 @@ type internal RegexMatcher<'t when 't: struct and TSet<'t> and 't: equality>
                 let currStart = startSpans[i]
                 l_pos <- currStart + prefixlen
 
-                while (I.mintermId _mtlookup input l_pos <> mtId) do
+                while (l_pos < input.Length && I.mintermId _mtlookup input l_pos <> mtId) do
                     l_pos <- l_pos + 1
 
                 l_pos <- (I.sub l_pos nk) + 1

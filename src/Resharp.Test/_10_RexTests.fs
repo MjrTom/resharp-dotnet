@@ -56,7 +56,7 @@ let testPositiveMatchesInFile (filePath: string) =
         failwith (failedSamples |> String.concat "\n")
 
 
-[<Fact(Skip = "takes very long; run for fuzzing")>]
+[<Fact>]
 let ``rex runtime 01`` () =
     __SOURCE_DIRECTORY__ + "/data/rexmatch1.json" |> testPositiveMatchesInFile
 
